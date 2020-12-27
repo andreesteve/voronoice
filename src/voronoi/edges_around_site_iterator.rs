@@ -1,5 +1,7 @@
 use delaunator::*;
 
+use super::Voronoi;
+
 /// Iterator that walks through all the edges connected to the starting point referenced by index 'start'.
 /// 'start' must be an incoming half-edge to the site that needs to be iterated around, the iterated values will be incoming half-edges.
 /// The iteration happens in a clock-wise manner.
@@ -21,6 +23,14 @@ pub struct EdgesAroundSiteIterator<'t> {
     next: usize
 }
 impl<'t> EdgesAroundSiteIterator<'t> {
+    #[allow(dead_code)]
+    pub fn for_site(voronoi: &'t Voronoi, site: usize) -> Self {
+        EdgesAroundSiteIterator::new(&voronoi.triangulation, voronoi.site_to_incoming[site])
+    }
+
+    /// Creates iterator based on a incoming edge to a site.
+    /// This must be the left-most incoming edge to the site to avoid early iteration stop around the convex hull.
+    /// Use `for_site` to obtain such a guarantee.
     pub fn new(triangulation: &'t Triangulation, incoming_edge: usize) -> Self {
         // assert_eq!(0,
         //     incoming_edge % 2,

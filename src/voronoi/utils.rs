@@ -36,3 +36,58 @@ pub fn into_line_list<T>(iter: impl Iterator<Item = T> + Clone)-> impl Iterator<
 pub fn triangle_of_edge(edge: usize) -> usize {
     edge / 3
 }
+
+#[allow(dead_code)]
+pub fn generate_circle_sites(size: usize) -> Vec<Point> {
+    let len = size;
+    let r = 1.0;
+    let mut sites = vec![];
+    sites.push(Point { x: 0.0, y: 0.0 });
+    for i in 0..len {
+        let a = (i as f64 * 360.0 / len as f64).to_radians();
+        sites.push(Point {
+            x: r * a.sin(),
+            y: r * a.cos()
+        });
+    }
+
+    sites
+}
+
+#[allow(dead_code)]
+pub fn generate_square_sites(width: usize, height: usize) -> Vec<Point> {
+    let mut sites = vec![];
+    let fwidth = width as f64;
+    let fheight = height as f64;
+
+    for i in 0..width {
+        for j in 0..height {
+            sites.push(Point {
+                x: i as f64 / fwidth - 0.5,
+                y: j as f64/ fheight - 0.5
+            });
+        }
+    }
+
+    sites
+}
+
+#[allow(dead_code)]
+pub fn generate_triangle_sites() -> Vec<Point> {
+    let mut sites = vec![];
+
+    sites.push(Point { x: -0.3, y: -0.3 });
+    sites.push(Point { x: 0.3, y: -0.3 });
+    sites.push(Point { x: 0.0, y: 0.3 });
+
+    sites.push(Point { x: -0.6, y: -0.6 });
+    sites.push(Point { x: 0.6, y: -0.6 });
+    sites.push(Point { x: 0.0, y: 0.6 });
+
+    sites.push(Point { x: -1.0, y: -1.0 });
+    sites.push(Point { x: -1.0, y: 1.0 });
+    sites.push(Point { x: 1.0, y: -1.0 });
+    sites.push(Point { x: 1.0, y: 1.0 });
+
+    sites
+}

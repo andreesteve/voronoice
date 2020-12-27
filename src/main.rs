@@ -28,41 +28,35 @@ fn color_red(_i: usize) -> Color {
 
 fn generate_voronoi(size: usize) -> Voronoi {
     let start = Instant::now();
-    let mut voronoi = Voronoi::default();
-    voronoi.randomize_points(size);
-    voronoi.build();
-    println!("Generated new voronoi of size {} in {:?}", size, start.elapsed());
+    //let range = (-1.0, 1.0);
+    //let voronoi = Voronoi::new_with_random_sites(size, range, range);
+    //let voronoi = Voronoi::new(voronoi::generate_circle_sites(size));
+    //let voronoi = Voronoi::new(voronoi::generate_square_sites(size, size));
+    let voronoi = Voronoi::new(voronoi::generate_triangle_sites());
 
-    // let len = 6;
-    // let r = 1.0;
-    // voronoi.sites.push(Point { x: 0.0, y: 0.0 });
-    // for i in 0..len {
-    //     let a = (i as f64 * 360.0 / len as f64).to_radians();
-    //     voronoi.sites.push(Point {
-    //         x: r * a.sin(),
-    //         y: r * a.cos()
-    //     });
-    // }
+    println!("Generated new voronoi of size {} in {:?}", size, start.elapsed());
 
     voronoi
 }
 
 struct VoronoiMeshOptions {
-    topology: PrimitiveTopology
+    voronoi_topoloy: PrimitiveTopology,
+    delauney_topoloy: PrimitiveTopology,
 }
 
 impl Default for VoronoiMeshOptions {
     fn default() -> Self {
         VoronoiMeshOptions {
-            topology: PrimitiveTopology::LineList
+            voronoi_topoloy: PrimitiveTopology::LineList,
+            delauney_topoloy: PrimitiveTopology::PointList
         }
     }
 }
 
 fn spawn_voronoi(commands: &mut Commands, mut meshes: ResMut<Assets<Mesh>>, voronoi: &Voronoi, options: &VoronoiMeshOptions) {
     let start = Instant::now();
-    let voronoi_generator = voronoi::VoronoiMeshGenerator { voronoi: &voronoi, coloring: color_red, topology: options.topology };
-    let triangle_generator = voronoi::VoronoiMeshGenerator { voronoi: &voronoi, coloring: color_white, topology: PrimitiveTopology::LineList };
+    let voronoi_generator = voronoi::VoronoiMeshGenerator { voronoi: &voronoi, coloring: color_red, topology: options.voronoi_topoloy };
+    let triangle_generator = voronoi::VoronoiMeshGenerator { voronoi: &voronoi, coloring: color_white, topology: options.delauney_topoloy };
 
     commands
         .spawn(
@@ -129,10 +123,12 @@ struct State {
 fn handle_input(
     mut state: Local<State>,
     input: Res<Input<KeyCode>>,
+    mouse_button_input: Res<Input<MouseButton>>,
+    windows: Res<Windows>,
     meshes: ResMut<Assets<Mesh>>,
     commands: &mut Commands,
     query: Query<Entity, With<VertexColor>>,
-    mut camera_query: Query<&mut Transform, With<Camera>>) {
+    mut camera_query: Query<(&mut Transform, &GlobalTransform, &Camera), With<Camera>>) {
 
     let mut respawn = false;
 
@@ -146,12 +142,56 @@ fn handle_input(
     // span new voronoi with new rendering but same points
     if input.just_pressed(KeyCode::P) {
         let options = &mut state.voronoi_opts;
-        options.topology = match options.topology {
+        options.voronoi_topoloy = match options.voronoi_topoloy {
             PrimitiveTopology::TriangleList => PrimitiveTopology::LineList,
             PrimitiveTopology::LineList => PrimitiveTopology::PointList,
             _ => PrimitiveTopology::TriangleList,
         };
 
+        respawn = true;
+    } else if input.just_pressed(KeyCode::O) {
+        let options = &mut state.voronoi_opts;
+        options.delauney_topoloy = match options.delauney_topoloy {
+            PrimitiveTopology::TriangleList => PrimitiveTopology::LineList,
+            PrimitiveTopology::LineList => PrimitiveTopology::PointList,
+            _ => PrimitiveTopology::TriangleList,
+        };
+
+        respawn = true;
+    } else if input.just_pressed(KeyCode::L) {
+        // run loyd relaxation
+        state.voronoi = Some(state.voronoi.take().unwrap().lloyd_relaxation());
+        respawn = true;
+    }
+
+
+    if mouse_button_input.just_pressed(MouseButton::Left) {
+        let (camera_transform, _, camera) = camera_query.iter_mut().next().unwrap();
+        let window = windows.iter().next().unwrap();
+        let screen_size = Vec2::from([window.width() as f32, window.height() as f32]);
+        let cursor_screen_pos = window.cursor_position().unwrap_or(Vec2::zero());
+
+        // normalize cursor coords (-1 to 1)
+        let cursor_pos_normalized = (2.0 * (cursor_screen_pos / screen_size) - Vec2::new(1.0, 1.0)).extend(1.0);
+        let view_matrix = camera_transform.compute_matrix();
+        let screen_normal_coords_to_world = view_matrix * camera.projection_matrix.inverse();
+
+        let cursor_world_pos = screen_normal_coords_to_world.transform_point3(cursor_pos_normalized);
+        let ray: Vec3 = cursor_world_pos - camera_transform.translation;
+
+        // FIXME I put this together to debug voronoi generator
+        // this is assuming camera looking down Y
+        // genealize this ray-plane intersection logic based on the camera forward vector
+        let mut world_pos = -camera_transform.translation.y * (ray / ray.y);
+        world_pos.y = 0.0;
+
+        info!("Mouse pos: {:?}", cursor_pos_normalized);
+        info!("World pos: {:?}", world_pos);
+
+        // take old sites and add point
+        let mut old = state.voronoi.take().unwrap();
+        old.sites.push(voronoi::Point { x: world_pos.x as f64, y: world_pos.z  as f64 });
+        state.voronoi = Some(Voronoi::new(old.sites));
         respawn = true;
     }
 
@@ -189,15 +229,16 @@ fn handle_input(
     }
 
     if input.pressed(KeyCode::W) {
-        for mut t in camera_query.iter_mut() {
-            t.translation.y -= 0.1;
+        for (mut t, _, _) in camera_query.iter_mut() {
+            let y_move = 0.1f32.min((t.translation.y - 0.7).powf(10.0));
+            t.translation.y -= y_move;
         }
     } else if input.pressed(KeyCode::S) {
-        for mut t in camera_query.iter_mut() {
+        for (mut t, _, _) in camera_query.iter_mut() {
             t.translation.y += 0.1;
         }
     } else if input.pressed(KeyCode::R) {
-        for mut t in camera_query.iter_mut() {
+        for (mut t, _, _) in camera_query.iter_mut() {
             t.translation.y = CAMERA_Y;
         }
     }

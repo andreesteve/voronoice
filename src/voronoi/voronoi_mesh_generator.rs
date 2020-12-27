@@ -2,6 +2,7 @@ use bevy::{
     prelude::*,
     render::{mesh::{Indices, Mesh}, pipeline::PrimitiveTopology},
 };
+use utils::into_line_list;
 
 use super::{Voronoi, utils, into_triangle_list::*};
 
@@ -81,12 +82,6 @@ impl VoronoiMeshGenerator<'_> {
             .collect();
         let indices = self.build_voronoi_cell_index_buffer();
 
-        // for e in EdgesAroundPointIterator::new(&self.voronoi.triangulation, 16) {
-        //     let t = triangle_of_edge(e);
-        //     println!("Edge {}, triangle {}, origin {:?}", e, t, self.voronoi.sites[self.voronoi.triangulation.triangles[e]]);
-        //     indices.push(t as u32);
-        // }
-
         let mut mesh = Mesh::new(self.topology);
         mesh.set_indices(Some(Indices::U32(indices)));
         mesh.set_attribute(Mesh::ATTRIBUTE_POSITION, positions);
@@ -115,35 +110,29 @@ impl VoronoiMeshGenerator<'_> {
     /// ```
     fn build_voronoi_cell_index_buffer(&self) -> Vec<u32> {
         let voronoi = self.voronoi;
-        let num_of_triangles = voronoi.num_of_triangles;
-        let num_of_sites = num_of_triangles;
-        let num_of_circumcenters = voronoi.circumcenters.len();
-        let mut seen_sites = vec![false; num_of_sites];
 
-        // index buffer for voronoi verteces - each circumcenter (voronoi vertex) will fan into a triangle - this is a lower bound
-        let mut indices: Vec<u32> = Vec::with_capacity(3 * num_of_circumcenters);
-
-        for edge in 0..voronoi.triangulation.triangles.len() {
-            // triangle[edge] is the site 'edge' originates from, but EdgesAroundPointIterator
-            // iterate over edges around the site 'edge' POINTS TO, thus to get that site
-            // we need to take the next half-edge
-            let site_index = voronoi.site_of_incoming(edge);
-
-            // if we have already created the cell for this site, move on
-            if !seen_sites[site_index] {
-                seen_sites[site_index] = true;
-
-                let vertex_iter = self.voronoi.edges_around_site(edge)
-                    .map(|e| utils::triangle_of_edge(e) as u32);
-
-                match self.topology {
-                    PrimitiveTopology::LineList => utils::into_line_list(vertex_iter).for_each(|e| indices.push(e)),
-                    PrimitiveTopology::TriangleList | PrimitiveTopology::PointList => vertex_iter.into_triangle_list().for_each(|e| indices.push(e)),
-                    _ => panic!("Topology {:?} is not supported", self.topology),
-                }
-            }
+        match self.topology {
+                PrimitiveTopology::LineList =>
+                    (0..voronoi.sites.len())
+                        .map(|s| {
+                            into_line_list(
+                                voronoi.cell_triangles[s]
+                                        .iter()
+                                        .map(|c| *c as u32)
+                            )
+                        })
+                        .flatten()
+                        .collect(),
+                PrimitiveTopology::TriangleList | PrimitiveTopology::PointList =>
+                    (0..voronoi.sites.len())
+                        .map(|s| voronoi.cell_triangles[s]
+                            .iter()
+                            .map(|c| *c as u32)
+                            .into_triangle_list())
+                        .flatten()
+                        .collect(),
+                _ =>
+                    panic!("Topology {:?} is not supported", self.topology),
         }
-
-        indices
     }
 }

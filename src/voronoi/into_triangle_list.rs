@@ -32,14 +32,14 @@ impl<A, I: Iterator<Item = A>> Iterator for IntoTriangleListIter<I, A> where A :
             },
             1 => {
                 self.counter += 1;
-                // we flip triangles here because often the input is clockwise
-                let second = self.second;
-                self.second = self.third;
-                second
+                self.first
             },
             _ => {
                 self.counter = 0;
-                self.first
+                let second = self.second;
+                self.second = self.third;
+                second
+
             },
         }
     }
