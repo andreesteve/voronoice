@@ -165,7 +165,7 @@ fn handle_input(
     }
 
 
-    if mouse_button_input.just_pressed(MouseButton::Left) {
+    if mouse_button_input.just_pressed(MouseButton::Left) || mouse_button_input.just_pressed(MouseButton::Right) {
         let (camera_transform, _, camera) = camera_query.iter_mut().next().unwrap();
         let window = windows.iter().next().unwrap();
         let screen_size = Vec2::from([window.width() as f32, window.height() as f32]);
@@ -188,9 +188,21 @@ fn handle_input(
         info!("Mouse pos: {:?}", cursor_pos_normalized);
         info!("World pos: {:?}", world_pos);
 
-        // take old sites and add point
+        // TODO if you add two sites very very close, it panics
+
+        // take sites and change based on type of click
+        let point = voronoi::Point { x: world_pos.x as f64, y: world_pos.z  as f64 };
         let mut old = state.voronoi.take().unwrap();
-        old.sites.push(voronoi::Point { x: world_pos.x as f64, y: world_pos.z  as f64 });
+        if mouse_button_input.just_pressed(MouseButton::Left) {
+            old.sites.push(point);
+        } else {
+            // if right click, get closest point and remove it
+            if let Some((i, _)) = old.sites.iter().enumerate().map(|(i, p)| (i, Vec3::new(p.x as f32, 0.0, p.y as f32).distance(world_pos)))
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal) ) {
+                old.sites.remove(i);
+            }
+        }
+
         state.voronoi = Some(Voronoi::new(old.sites));
         respawn = true;
     }
