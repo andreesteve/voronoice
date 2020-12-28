@@ -3,6 +3,7 @@ mod utils;
 mod edges_around_site_iterator;
 mod voronoi_mesh_generator;
 
+use bevy::reflect::erased_serde::private::serde::de::value::BorrowedBytesDeserializer;
 use delaunator::{EMPTY, Triangulation, next_halfedge, triangulate};
 use self::edges_around_site_iterator::EdgesAroundSiteIterator;
 
@@ -13,6 +14,7 @@ pub use self::utils::generate_circle_sites;
 pub use self::utils::generate_square_sites;
 pub use self::utils::generate_triangle_sites;
 pub use self::utils::generate_special_case_1;
+pub use self::utils::generate_special_case_2;
 
 /// The dual delauney-voronoi graph.
 ///
@@ -80,29 +82,70 @@ fn site_of_incoming(triangulation: &Triangulation, e: usize) -> usize {
     triangulation.triangles[next_halfedge(e)]
 }
 
-fn project_point_on_bounding_box(point: &Point, direction: &Point, box_x: f64, box_y: f64) -> Point {
-    let box_ratio = box_y / box_x;
-    let tn = direction.y / direction.x;
+fn clip_vector_to_bounding_box(point: &Point, bounding_box: &Point) -> Point {
+    let box_ratio = bounding_box.y / bounding_box.y;
+    let tn = point.y / point.x;
+    let mut p = Point { x: 0.0, y: 0.0 };
 
     if tn > box_ratio || tn < -box_ratio {
         // will hit box_y or -box_y
-        let box_y = box_y * direction.y.signum();
-        Point {
-            x: point.x + direction.x * (1.0 + (box_y - point.y - direction.y) / direction.y),
-            y: box_y,
-        }
+        let box_y = bounding_box.y * point.y.signum();
+        p.x = box_y * tn.recip();
+        p.y = box_y;
     } else {
-        // will hit box_x or - box_x
-        let box_x = box_x * direction.x.signum();
-        Point {
-            x: box_x,
-            y: point.y + direction.y * (1.0 + (box_x - point.x - direction.x) / direction.x),
-        }
+        // will hit box_x or -box_x
+        let box_x = bounding_box.x * point.x.signum();
+        p.x = box_x;
+        p.y = box_x * tn;
     }
+
+    debug_assert!(is_in_box(&p, bounding_box), "Point {:?} clipped ({:?}) outside bounding box {:?}", point, p, bounding_box);
+    debug_assert!(p.x.abs() == bounding_box.x || p.y.abs() == bounding_box.y.abs(), "Point {:?} clipped ({:?}) outside bounding box {:?}", point, p, bounding_box);
+
+    p
+}
+
+fn project_point_on_bounding_box(point: &Point, direction: &Point, bounding_box: &Point) -> Point {
+    let box_x = bounding_box.x * direction.x.signum();
+    let box_y = bounding_box.y * direction.y.signum();
+
+    let mut p = Point { x: 0.0, y: 0.0 };
+    p.x = point.x + direction.x * (1.0 + (box_y - (point.y + direction.y)) / direction.y);
+    p.y = point.y + direction.y * (1.0 + (box_x - (point.x + direction.x)) / direction.x);
+
+    if p.x.abs() > bounding_box.x {
+        p.x = box_x;
+    }
+
+    if p.y.abs() > bounding_box.y {
+        p.y = box_y;
+    }
+
+
+    // if tn > box_ratio || tn < -box_ratio {
+    //     // will hit box_y or -box_y
+    //     let box_y = bounding_box.y * direction.y.signum();
+    //     p.x = point.x + direction.x * (1.0 + (box_y - (point.y + direction.y)) / direction.y);
+    //     p.y = box_y;
+    // } else {
+    //     // will hit box_x or - box_x
+    //     let box_x = bounding_box.x * direction.x.signum();
+    //     p.x = box_x;
+    //     p.y = point.y + direction.y * (1.0 + (box_x - (point.x + direction.x)) / direction.x);
+    // }
+
+    debug_assert!(is_in_box(&p, bounding_box), "Point {:?} with direction {:?} projected ({:?}) outside bounding box {:?}", point, direction, p, bounding_box);
+    debug_assert!(p.x.abs() == bounding_box.x || p.y.abs() == bounding_box.y.abs(), "Point {:?} with direction {:?} projected ({:?}) outside bounding box {:?}", point, direction, p, bounding_box);
+
+    p
+}
+
+fn is_in_box(point: &Point, bounding_box: &Point) -> bool {
+    point.x.abs() <= bounding_box.x && point.y.abs() <= bounding_box.y
 }
 
 /// Calculate the triangles associated with each voronoi cell
-fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize) -> Vec<Vec<usize>> {
+fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize, bounding_box: &Point) -> Vec<Vec<usize>> {
     let mut seen_sites = vec![false; num_of_sites];
     let mut cells = vec![Vec::new(); num_of_sites];
 
@@ -142,28 +185,16 @@ fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, 
 
                 // the line extension must be perpendicular to the hull edge
                 // get edge direction, rotated by 90 degree clock-wise as to point towards the "outside"
-                let mut orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
+                let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
 
                 // get voronoi vertex that needs to be extended and extend it
                 let cell_vertex = &circumcenters[cell[0]];
-
-
-                orthogonal = project_point_on_bounding_box(cell_vertex, &orthogonal, 2.0, 2.0);
-
-                // let bounding_y = 2.0;
-
-                // if orthogonal.y > 0.0 {
-                //     orthogonal.x = cell_vertex.x + orthogonal.x * (1.0 + bounding_y - (cell_vertex.y + orthogonal.y) / orthogonal.y);
-                //     orthogonal.y = bounding_y;
-                // } else {
-                //     orthogonal.x += cell_vertex.x;
-                //     orthogonal.y += cell_vertex.y;
-                // }
+                let projected = project_point_on_bounding_box(cell_vertex, &orthogonal, bounding_box);
 
                 // add extended vertex as a "fake" circumcenter
                 let vertex_index = circumcenters.len();
                 cell.push(vertex_index);
-                circumcenters.push(orthogonal);
+                circumcenters.push(projected);
             }
         }
     }
@@ -174,6 +205,7 @@ fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, 
     let mut hull_iter = hull.iter().rev().copied();
     let first_cell_index = hull_iter.next().unwrap();
     let mut prev_exteded_vertex = *cells[first_cell_index].last().unwrap();
+    let first_vertex = prev_exteded_vertex;
 
     for site in hull_iter {
         let site = site;
@@ -182,15 +214,46 @@ fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, 
         // keep track of current extension vertex
         let curr_exteded_vertex = *cell.last().unwrap();
 
-        // close the cell by picking the previous site extension to close the polygon
-        // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
-        cell.insert(cell.len() - 1, prev_exteded_vertex);
+        close_cell(cell, circumcenters, prev_exteded_vertex, curr_exteded_vertex, bounding_box);
+
+        // let mine = &circumcenters[curr_exteded_vertex];
+        // let prev = &circumcenters[prev_exteded_vertex];
+
+        // // close the cell by picking the previous site extension to close the polygon
+        // // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
+        // cell.insert(cell.len() - 1, prev_exteded_vertex);
+
+        // if mine.x.abs() == bounding_box.x && prev.y.abs() == bounding_box.y {
+        //     let p = Point { x: mine.x, y: prev.y };
+        //     let i = circumcenters.len();
+        //     circumcenters.push(p);
+        //     cell.insert(cell.len() - 1, i);
+        // } else if mine.y.abs() == bounding_box.y && prev.x.abs() == bounding_box.x {
+        //     let p = Point { x: prev.x, y: mine.y };
+        //     let i = circumcenters.len();
+        //     circumcenters.push(p);
+        //     cell.insert(cell.len() - 1, i);
+        // }
 
         prev_exteded_vertex = curr_exteded_vertex;
     }
 
     let first_cell = &mut cells[first_cell_index];
-    first_cell.insert(first_cell.len() - 1, prev_exteded_vertex);
+    close_cell(first_cell, circumcenters, prev_exteded_vertex, first_vertex, bounding_box);
+
+    // first_cell.insert(first_cell.len() - 1, prev_exteded_vertex);
+
+    // if mine.x.abs() == bounding_box.x && prev.y.abs() == bounding_box.y {
+    //     let p = Point { x: mine.x, y: prev.y };
+    //     let i = circumcenters.len();
+    //     circumcenters.push(p);
+    //     first_cell.insert(first_cell.len() - 1, i);
+    // } else if mine.y.abs() == bounding_box.y && prev.x.abs() == bounding_box.x {
+    //     let p = Point { x: prev.x, y: mine.y };
+    //     let i = circumcenters.len();
+    //     circumcenters.push(p);
+    //     first_cell.insert(first_cell.len() - 1, i);
+    // }
 
     if num_of_sites != cells.len() {
         println!("Different number of sites from cells. Sites: {}, cells: {}", num_of_sites, cells.len());
@@ -201,22 +264,103 @@ fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, 
     cells
 }
 
+fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex: usize, curr_vertex: usize, bounding_box: &Point) {
+    let mine = circumcenters[curr_vertex].clone();
+    let prev = circumcenters[prev_vertex].clone();
+
+    let top_right = Point { x: bounding_box.x, y: bounding_box.y };
+    let top_left = Point { x: -bounding_box.x, y: bounding_box.y };
+    let bottom_right = Point { x: bounding_box.x, y: -bounding_box.y };
+    let bottom_left = Point { x: -bounding_box.x, y: -bounding_box.y };
+
+    // close the cell by picking the previous site extension to close the polygon
+    // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
+    cell.insert(cell.len() - 1, prev_vertex);
+
+    if mine.x.abs() == bounding_box.x && prev.x.abs() == bounding_box.x && mine.x != prev.x {
+        println!("Case 2: mine {:?} prev {:?}", mine, prev);
+        // cur and prev on oppositve X bounding lines
+        let dir = if prev.y.signum() != mine.y.signum() && prev.y.abs() > mine.y.abs() {
+            -mine.y.signum()
+        } else {
+            mine.y.signum()
+        };
+
+        let p = Point { x: prev.x, y: dir * bounding_box.y };
+        println!("  Added {:?}", p);
+        let i = circumcenters.len();
+        circumcenters.push(p);
+        cell.insert(cell.len() - 1, i);
+
+        let p = Point { x: mine.x, y: dir * bounding_box.y };
+        println!("  Added {:?}", p);
+        let i = circumcenters.len();
+        circumcenters.push(p);
+        cell.insert(cell.len() - 1, i);
+    } else if mine.y.abs() == bounding_box.y && prev.y.abs() == bounding_box.y && mine.y != prev.y {
+        println!("Case 3: mine {:?} prev {:?}", mine, prev);
+        // cur and prev on oppositve Y bounding lines
+        let dir = if prev.x.signum() != mine.x.signum() && prev.x.abs() > mine.x.abs() {
+            -mine.x.signum()
+        } else {
+            mine.x.signum()
+        };
+
+        let p = Point { x: dir * bounding_box.x, y: prev.y };
+        println!("  Added {:?}", p);
+        let i = circumcenters.len();
+        circumcenters.push(p);
+        cell.insert(cell.len() - 1, i);
+
+        let p = Point { x: dir * bounding_box.x, y: mine.y };
+        println!("  Added {:?}", p);
+        let i = circumcenters.len();
+        circumcenters.push(p);
+        cell.insert(cell.len() - 1, i);
+    } else if mine.x.abs() == bounding_box.x && prev.y.abs() == bounding_box.y {
+        println!("Case 0: mine {:?} prev {:?}", mine, prev);
+        let p = Point { x: mine.x, y: prev.y };
+        let i = circumcenters.len();
+        circumcenters.push(p);
+        cell.insert(cell.len() - 1, i);
+    } else if mine.y.abs() == bounding_box.y && prev.x.abs() == bounding_box.x {
+        println!("Case 1: mine {:?} prev {:?}", mine, prev);
+        let p = Point { x: prev.x, y: mine.y };
+        let i = circumcenters.len();
+        circumcenters.push(p);
+        cell.insert(cell.len() - 1, i);
+    }
+}
+
 // When reading this code think about 'edge' as the starting edge for a triangle
 // So you can say that the starting edge indexes the triangle
 // For instances, diag.triangles.len() is the number of starting edges and triangles in the triangulation, you can think of diag.triangles[e] as 'e' as being both the index of the
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
     pub fn new(sites: Vec<Point>) -> Self {
+        let bounding_box = Point { x: 2.0, y: 2.0 };
+
+        // remove any points not within bounding box
+        let sites = sites.into_iter().filter(|p| is_in_box(p, &bounding_box)).collect::<Vec<Point>>();
+
         let triangulation = triangulate(&sites).expect("Expected tris");
         let num_of_triangles = triangulation.triangles.len() / 3;
         let num_of_sites = sites.len();
 
         // calculate circuncenter of each triangle
         let mut circumcenters = (0..num_of_triangles)
-            .map(|t| cicumcenter(
-                &sites[triangulation.triangles[3* t]],
-                &sites[triangulation.triangles[3* t + 1]],
-                &sites[triangulation.triangles[3* t + 2]]))
+            .map(|t| {
+                let mut c= cicumcenter(
+                    &sites[triangulation.triangles[3* t]],
+                    &sites[triangulation.triangles[3* t + 1]],
+                    &sites[triangulation.triangles[3* t + 2]]);
+
+                    if !is_in_box(&c, &bounding_box) {
+                        c = clip_vector_to_bounding_box(&c, &bounding_box);
+                    }
+
+                    c
+            })
             .collect();
 
         // create map between site and its left-most incoming half-edge
@@ -229,7 +373,7 @@ impl Voronoi {
             }
         }
 
-        let cell_triangles = calculate_cell_triangles(&sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites);
+        let cell_triangles = calculate_cell_triangles(&sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites, &bounding_box);
 
         Voronoi {
             circumcenters,

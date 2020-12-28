@@ -103,3 +103,15 @@ pub fn generate_special_case_1() -> Vec<Point> {
 
     sites
 }
+
+#[allow(dead_code)]
+pub fn generate_special_case_2() -> Vec<Point> {
+    let mut sites = vec![];
+
+    sites.push(Point { x: 0.0, y: 0.0 });
+    sites.push(Point { x: 0.22, y: -0.75 });
+    sites.push(Point { x: 0.25, y: -0.83 });
+    sites.push(Point { x: -0.50, y: 0.0 });
+
+    sites
+}

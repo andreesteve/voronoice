@@ -33,7 +33,7 @@ fn generate_voronoi(size: usize) -> Voronoi {
     //let voronoi = Voronoi::new(voronoi::generate_circle_sites(size));
     //let voronoi = Voronoi::new(voronoi::generate_square_sites(2, 2));
     //let voronoi = Voronoi::new(voronoi::generate_triangle_sites());
-    let voronoi = Voronoi::new(voronoi::generate_special_case_1());
+    let voronoi = Voronoi::new(voronoi::generate_special_case_2());
 
     println!("Generated new voronoi of size {} in {:?}", size, start.elapsed());
 
@@ -49,7 +49,7 @@ impl Default for VoronoiMeshOptions {
     fn default() -> Self {
         VoronoiMeshOptions {
             voronoi_topoloy: PrimitiveTopology::LineList,
-            delauney_topoloy: PrimitiveTopology::PointList
+            delauney_topoloy: PrimitiveTopology::LineList
         }
     }
 }
@@ -201,11 +201,13 @@ fn handle_input(
                 old.sites.push(point);
                 info!("Site added: {:?}", world_pos);
             }
-        } else {
+        } else if (old.sites.len() > 3) { // don't let it go below 3 as it won't triangulate
             // if right click, get closest point and remove it
-            if let Some((i, _)) = closest {
-                old.sites.remove(i);
-                info!("Site removed: {}", i);
+            if let Some((i, dist)) = closest {
+                if dist < 0.2 {
+                    old.sites.remove(i);
+                    info!("Site removed: {}", i);
+                }
             }
         }
 
