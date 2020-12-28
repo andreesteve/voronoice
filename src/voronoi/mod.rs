@@ -80,6 +80,27 @@ fn site_of_incoming(triangulation: &Triangulation, e: usize) -> usize {
     triangulation.triangles[next_halfedge(e)]
 }
 
+fn project_point_on_bounding_box(point: &Point, direction: &Point, box_x: f64, box_y: f64) -> Point {
+    let box_ratio = box_y / box_x;
+    let tn = direction.y / direction.x;
+
+    if tn > box_ratio || tn < -box_ratio {
+        // will hit box_y or -box_y
+        let box_y = box_y * direction.y.signum();
+        Point {
+            x: point.x + direction.x * (1.0 + (box_y - point.y - direction.y) / direction.y),
+            y: box_y,
+        }
+    } else {
+        // will hit box_x or - box_x
+        let box_x = box_x * direction.x.signum();
+        Point {
+            x: box_x,
+            y: point.y + direction.y * (1.0 + (box_x - point.x - direction.x) / direction.x),
+        }
+    }
+}
+
 /// Calculate the triangles associated with each voronoi cell
 fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize) -> Vec<Vec<usize>> {
     let mut seen_sites = vec![false; num_of_sites];
@@ -121,12 +142,23 @@ fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, 
 
                 // the line extension must be perpendicular to the hull edge
                 // get edge direction, rotated by 90 degree clock-wise as to point towards the "outside"
-                let mut orthogonal = Point { x: 2.0 * (source_point.y - target_point.y), y: 2.0 * (target_point.x - source_point.x) };
+                let mut orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
 
                 // get voronoi vertex that needs to be extended and extend it
                 let cell_vertex = &circumcenters[cell[0]];
-                orthogonal.x += cell_vertex.x;
-                orthogonal.y += cell_vertex.y;
+
+
+                orthogonal = project_point_on_bounding_box(cell_vertex, &orthogonal, 2.0, 2.0);
+
+                // let bounding_y = 2.0;
+
+                // if orthogonal.y > 0.0 {
+                //     orthogonal.x = cell_vertex.x + orthogonal.x * (1.0 + bounding_y - (cell_vertex.y + orthogonal.y) / orthogonal.y);
+                //     orthogonal.y = bounding_y;
+                // } else {
+                //     orthogonal.x += cell_vertex.x;
+                //     orthogonal.y += cell_vertex.y;
+                // }
 
                 // add extended vertex as a "fake" circumcenter
                 let vertex_index = circumcenters.len();

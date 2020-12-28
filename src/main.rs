@@ -28,12 +28,12 @@ fn color_red(_i: usize) -> Color {
 
 fn generate_voronoi(size: usize) -> Voronoi {
     let start = Instant::now();
-    let range = (-1.0, 1.0);
-    let voronoi = Voronoi::new_with_random_sites(size, range, range);
+    //let range = (-1.0, 1.0);
+    //let voronoi = Voronoi::new_with_random_sites(size, range, range);
     //let voronoi = Voronoi::new(voronoi::generate_circle_sites(size));
     //let voronoi = Voronoi::new(voronoi::generate_square_sites(2, 2));
     //let voronoi = Voronoi::new(voronoi::generate_triangle_sites());
-    //let voronoi = Voronoi::new(voronoi::generate_special_case_1());
+    let voronoi = Voronoi::new(voronoi::generate_special_case_1());
 
     println!("Generated new voronoi of size {} in {:?}", size, start.elapsed());
 
@@ -116,7 +116,7 @@ fn setup(
 }
 
 fn get_closest_site(voronoi: &Voronoi, pos: Vec3) -> Option<(usize, f32)> {
-    voronoi.sites.iter().enumerate().map(|(i, p)| (i, Vec3::new(p.x as f32, 0.0, p.y as f32).distance(pos)))
+    voronoi.sites.iter().enumerate().map(|(i, p)| (i, Vec3::new(p.y as f32, 0.0, p.x as f32).distance(pos)))
         .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
 }
 
