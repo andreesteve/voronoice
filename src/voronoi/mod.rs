@@ -8,9 +8,11 @@ use self::edges_around_site_iterator::EdgesAroundSiteIterator;
 
 pub use self::voronoi_mesh_generator::VoronoiMeshGenerator;
 pub use delaunator::Point;
+pub use self::utils::to_f32_vec;
 pub use self::utils::generate_circle_sites;
 pub use self::utils::generate_square_sites;
 pub use self::utils::generate_triangle_sites;
+pub use self::utils::generate_special_case_1;
 
 /// The dual delauney-voronoi graph.
 ///
@@ -45,6 +47,16 @@ pub struct Voronoi {
     cell_triangles: Vec<Vec<usize>>
 }
 
+impl std::fmt::Debug for Voronoi {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("Voronoi")
+            .field("sites", &self.sites)
+            .field("circumcenters", &self.circumcenters)
+            .field("cell_triangles", &self.cell_triangles)
+            .finish()
+    }
+}
+
 fn cicumcenter(a: &Point, b: &Point, c: &Point) -> Point {
     // move origin to a
     let b_x = b.x - a.x;
@@ -69,9 +81,9 @@ fn site_of_incoming(triangulation: &Triangulation, e: usize) -> usize {
 }
 
 /// Calculate the triangles associated with each voronoi cell
-fn calculate_cell_triangles(triangulation: &Triangulation, site_to_halfedge: &Vec<usize>, num_of_sites: usize) -> Vec<Vec<usize>> {
+fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize) -> Vec<Vec<usize>> {
     let mut seen_sites = vec![false; num_of_sites];
-    let mut cells = Vec::with_capacity(num_of_sites);
+    let mut cells = vec![Vec::new(); num_of_sites];
 
     for edge in 0..triangulation.triangles.len() {
         // triangle[edge] is the site 'edge' originates from, but EdgesAroundPointIterator
@@ -79,23 +91,74 @@ fn calculate_cell_triangles(triangulation: &Triangulation, site_to_halfedge: &Ve
         // we need to take the next half-edge
         let site = site_of_incoming(&triangulation, edge);
 
+        //println!("Site {} {:?}, incoming edge {} (from site {} {:?}), first time? {}", site, sites[site], edge, triangulation.triangles[edge], sites[triangulation.triangles[edge]], !seen_sites[site]);
+
         // if we have already created the cell for this site, move on
         if !seen_sites[site] {
             seen_sites[site] = true;
 
             // edge may or may not be the left-most incoming edge for site
             // thus get the one
-            let leftmost_edge = site_to_halfedge[site];
+            let leftmost_edge = site_to_leftmost_halfedge[site];
 
-            let mut cell = EdgesAroundSiteIterator::new(&triangulation, leftmost_edge)
-                .map(|e| utils::triangle_of_edge(e))
-                .collect::<Vec<usize>>();
+            // EdgesAroundSiteIterator::new(&triangulation, leftmost_edge).for_each(|e| {
+            //     println!("  Incoming edge {} from site {} {:?}", e, triangulation.triangles[e], sites[triangulation.triangles[e]])
+            // });
 
-            // reverse the values because the iteration is clock-wise and we want to store values counter-clockwise
-            cell.reverse();
-            cells.push(cell);
+            let cell = &mut cells[site];
+            cell.extend(
+                EdgesAroundSiteIterator::new(&triangulation, leftmost_edge)
+                        .map(|e| utils::triangle_of_edge(e))
+            );
+
+            // if there is no half-edge associated with the left-most edge, the edge is on the hull
+            // thus this cell will not "close" and it needs to be extended and clipped
+            if triangulation.halfedges[leftmost_edge] == EMPTY {
+                // get the point that the edge comes from
+                let source_site = triangulation.triangles[leftmost_edge];
+                let source_point = &sites[source_site];
+                let target_point = &sites[site];
+
+                // the line extension must be perpendicular to the hull edge
+                // get edge direction, rotated by 90 degree clock-wise as to point towards the "outside"
+                let mut orthogonal = Point { x: 2.0 * (source_point.y - target_point.y), y: 2.0 * (target_point.x - source_point.x) };
+
+                // get voronoi vertex that needs to be extended and extend it
+                let cell_vertex = &circumcenters[cell[0]];
+                orthogonal.x += cell_vertex.x;
+                orthogonal.y += cell_vertex.y;
+
+                // add extended vertex as a "fake" circumcenter
+                let vertex_index = circumcenters.len();
+                cell.push(vertex_index);
+                circumcenters.push(orthogonal);
+            }
         }
     }
+
+    // we need to "close" the cell for the sites on the hull, as we have so far extended their edges
+    // perform clock-wise walk on the sites on the hull
+    let hull = &triangulation.hull;
+    let mut hull_iter = hull.iter().rev().copied();
+    let first_cell_index = hull_iter.next().unwrap();
+    let mut prev_exteded_vertex = *cells[first_cell_index].last().unwrap();
+
+    for site in hull_iter {
+        let site = site;
+        let cell = &mut cells[site];
+
+        // keep track of current extension vertex
+        let curr_exteded_vertex = *cell.last().unwrap();
+
+        // close the cell by picking the previous site extension to close the polygon
+        // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
+        cell.insert(cell.len() - 1, prev_exteded_vertex);
+
+        prev_exteded_vertex = curr_exteded_vertex;
+    }
+
+    let first_cell = &mut cells[first_cell_index];
+    first_cell.insert(first_cell.len() - 1, prev_exteded_vertex);
 
     if num_of_sites != cells.len() {
         println!("Different number of sites from cells. Sites: {}, cells: {}", num_of_sites, cells.len());
@@ -117,7 +180,7 @@ impl Voronoi {
         let num_of_sites = sites.len();
 
         // calculate circuncenter of each triangle
-        let circumcenters = (0..num_of_triangles)
+        let mut circumcenters = (0..num_of_triangles)
             .map(|t| cicumcenter(
                 &sites[triangulation.triangles[3* t]],
                 &sites[triangulation.triangles[3* t + 1]],
@@ -134,7 +197,7 @@ impl Voronoi {
             }
         }
 
-        let cell_triangles = calculate_cell_triangles(&triangulation, &site_to_halfedge, num_of_sites);
+        let cell_triangles = calculate_cell_triangles(&sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites);
 
         Voronoi {
             circumcenters,

@@ -4,7 +4,7 @@ use bevy::prelude::Color;
 pub fn to_f32_vec(p: &Vec<Point>) -> Vec<[f32; 3]> {
     p
         .iter()
-        .map(|c| { [c.x as f32, 0.0, c.y as f32] })
+        .map(|c| { [c.y as f32, 0.0, c.x as f32] })
         .collect()
 }
 
@@ -88,6 +88,18 @@ pub fn generate_triangle_sites() -> Vec<Point> {
     sites.push(Point { x: -1.0, y: 1.0 });
     sites.push(Point { x: 1.0, y: -1.0 });
     sites.push(Point { x: 1.0, y: 1.0 });
+
+    sites
+}
+
+#[allow(dead_code)]
+pub fn generate_special_case_1() -> Vec<Point> {
+    let mut sites = vec![];
+
+    sites.push(Point { x: -0.5, y: -0.5 });
+    sites.push(Point { x: -0.5, y: 0.0 });
+    sites.push(Point { x: 0.0, y: 0.0 });
+    sites.push(Point { x: 0.5, y: -1.0 });
 
     sites
 }

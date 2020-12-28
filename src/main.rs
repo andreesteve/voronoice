@@ -28,11 +28,12 @@ fn color_red(_i: usize) -> Color {
 
 fn generate_voronoi(size: usize) -> Voronoi {
     let start = Instant::now();
-    //let range = (-1.0, 1.0);
-    //let voronoi = Voronoi::new_with_random_sites(size, range, range);
+    let range = (-1.0, 1.0);
+    let voronoi = Voronoi::new_with_random_sites(size, range, range);
     //let voronoi = Voronoi::new(voronoi::generate_circle_sites(size));
-    //let voronoi = Voronoi::new(voronoi::generate_square_sites(size, size));
-    let voronoi = Voronoi::new(voronoi::generate_triangle_sites());
+    //let voronoi = Voronoi::new(voronoi::generate_square_sites(2, 2));
+    //let voronoi = Voronoi::new(voronoi::generate_triangle_sites());
+    //let voronoi = Voronoi::new(voronoi::generate_special_case_1());
 
     println!("Generated new voronoi of size {} in {:?}", size, start.elapsed());
 
@@ -114,6 +115,11 @@ fn setup(
         });
 }
 
+fn get_closest_site(voronoi: &Voronoi, pos: Vec3) -> Option<(usize, f32)> {
+    voronoi.sites.iter().enumerate().map(|(i, p)| (i, Vec3::new(p.x as f32, 0.0, p.y as f32).distance(pos)))
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+}
+
 #[derive(Default)]
 struct State {
     voronoi_opts: VoronoiMeshOptions,
@@ -185,21 +191,21 @@ fn handle_input(
         let mut world_pos = -camera_transform.translation.y * (ray / ray.y);
         world_pos.y = 0.0;
 
-        info!("Mouse pos: {:?}", cursor_pos_normalized);
-        info!("World pos: {:?}", world_pos);
-
-        // TODO if you add two sites very very close, it panics
-
         // take sites and change based on type of click
-        let point = voronoi::Point { x: world_pos.x as f64, y: world_pos.z  as f64 };
+        let point = voronoi::Point { x: world_pos.z as f64, y: world_pos.x  as f64 };
         let mut old = state.voronoi.take().unwrap();
+        let closest = get_closest_site(&old, world_pos);
         if mouse_button_input.just_pressed(MouseButton::Left) {
-            old.sites.push(point);
+            // do not let adding points extremelly close as this degenerate triangulation
+            if closest.is_none() || closest.unwrap().1 > 0.001 {
+                old.sites.push(point);
+                info!("Site added: {:?}", world_pos);
+            }
         } else {
             // if right click, get closest point and remove it
-            if let Some((i, _)) = old.sites.iter().enumerate().map(|(i, p)| (i, Vec3::new(p.x as f32, 0.0, p.y as f32).distance(world_pos)))
-                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal) ) {
+            if let Some((i, _)) = closest {
                 old.sites.remove(i);
+                info!("Site removed: {}", i);
             }
         }
 
@@ -253,6 +259,10 @@ fn handle_input(
         for (mut t, _, _) in camera_query.iter_mut() {
             t.translation.y = CAMERA_Y;
         }
+    }
+
+    if input.just_pressed(KeyCode::B) {
+        println!("{:#?}", state.voronoi);
     }
 }
 
