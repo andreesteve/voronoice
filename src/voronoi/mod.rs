@@ -14,7 +14,7 @@ pub use self::voronoi_mesh_generator::VoronoiMeshGenerator;
 pub use delaunator::Point;
 pub use self::utils::to_f32_vec;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HullBehavior {
     Open,
     Closed
@@ -157,8 +157,51 @@ fn is_in_box(point: &Point, bounding_box: &Point) -> bool {
     point.x.abs() <= bounding_box.x && point.y.abs() <= bounding_box.y
 }
 
+fn close_hull(cells: &mut Vec<Vec<usize>>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, bounding_box: &Point) {
+    // perform clock-wise walk on the sites on the hull
+    let hull = &triangulation.hull;
+    let mut hull_iter = hull.iter().rev().copied();
+    let first_cell_index = hull_iter.next().unwrap();
+    let mut prev_exteded_vertex = *cells[first_cell_index].last().unwrap();
+    let first_vertex = prev_exteded_vertex;
+
+    for site in hull_iter {
+        let site = site;
+        let cell = &mut cells[site];
+
+        // keep track of current extension vertex
+        let curr_exteded_vertex = *cell.last().unwrap();
+
+        close_cell(cell, circumcenters, prev_exteded_vertex, curr_exteded_vertex, bounding_box);
+
+        // let mine = &circumcenters[curr_exteded_vertex];
+        // let prev = &circumcenters[prev_exteded_vertex];
+
+        // // close the cell by picking the previous site extension to close the polygon
+        // // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
+        // cell.insert(cell.len() - 1, prev_exteded_vertex);
+
+        // if mine.x.abs() == bounding_box.x && prev.y.abs() == bounding_box.y {
+        //     let p = Point { x: mine.x, y: prev.y };
+        //     let i = circumcenters.len();
+        //     circumcenters.push(p);
+        //     cell.insert(cell.len() - 1, i);
+        // } else if mine.y.abs() == bounding_box.y && prev.x.abs() == bounding_box.x {
+        //     let p = Point { x: prev.x, y: mine.y };
+        //     let i = circumcenters.len();
+        //     circumcenters.push(p);
+        //     cell.insert(cell.len() - 1, i);
+        // }
+
+        prev_exteded_vertex = curr_exteded_vertex;
+    }
+
+    let first_cell = &mut cells[first_cell_index];
+    close_cell(first_cell, circumcenters, prev_exteded_vertex, first_vertex, bounding_box);
+}
+
 /// Calculate the triangles associated with each voronoi cell
-fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize, bounding_box: &Point) -> Vec<Vec<usize>> {
+fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize, bounding_box: &Point) -> Vec<Vec<usize>> {
     let mut seen_sites = vec![false; num_of_sites];
     let mut cells = vec![Vec::new(); num_of_sites];
 
@@ -213,46 +256,9 @@ fn calculate_cell_triangles(sites: &Vec<Point>, circumcenters: &mut Vec<Point>, 
     }
 
     // we need to "close" the cell for the sites on the hull, as we have so far extended their edges
-    // perform clock-wise walk on the sites on the hull
-    let hull = &triangulation.hull;
-    let mut hull_iter = hull.iter().rev().copied();
-    let first_cell_index = hull_iter.next().unwrap();
-    let mut prev_exteded_vertex = *cells[first_cell_index].last().unwrap();
-    let first_vertex = prev_exteded_vertex;
-
-    for site in hull_iter {
-        let site = site;
-        let cell = &mut cells[site];
-
-        // keep track of current extension vertex
-        let curr_exteded_vertex = *cell.last().unwrap();
-
-        close_cell(cell, circumcenters, prev_exteded_vertex, curr_exteded_vertex, bounding_box);
-
-        // let mine = &circumcenters[curr_exteded_vertex];
-        // let prev = &circumcenters[prev_exteded_vertex];
-
-        // // close the cell by picking the previous site extension to close the polygon
-        // // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
-        // cell.insert(cell.len() - 1, prev_exteded_vertex);
-
-        // if mine.x.abs() == bounding_box.x && prev.y.abs() == bounding_box.y {
-        //     let p = Point { x: mine.x, y: prev.y };
-        //     let i = circumcenters.len();
-        //     circumcenters.push(p);
-        //     cell.insert(cell.len() - 1, i);
-        // } else if mine.y.abs() == bounding_box.y && prev.x.abs() == bounding_box.x {
-        //     let p = Point { x: prev.x, y: mine.y };
-        //     let i = circumcenters.len();
-        //     circumcenters.push(p);
-        //     cell.insert(cell.len() - 1, i);
-        // }
-
-        prev_exteded_vertex = curr_exteded_vertex;
+    if hull_behavior == HullBehavior::Closed {
+        close_hull(&mut cells, circumcenters, triangulation, bounding_box);
     }
-
-    let first_cell = &mut cells[first_cell_index];
-    close_cell(first_cell, circumcenters, prev_exteded_vertex, first_vertex, bounding_box);
 
     // first_cell.insert(first_cell.len() - 1, prev_exteded_vertex);
 
@@ -389,7 +395,7 @@ impl Voronoi {
             }
         }
 
-        let cell_triangles = calculate_cell_triangles(&sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites, &bounding_box);
+        let cell_triangles = calculate_cell_triangles(hull_behavior, &sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites, &bounding_box);
 
         Voronoi {
             circumcenters,

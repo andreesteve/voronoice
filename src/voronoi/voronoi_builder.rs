@@ -9,10 +9,6 @@ pub struct VoronoiBuilder {
 }
 
 impl VoronoiBuilder {
-    pub fn close_hull(&mut self) -> &mut Self {
-        self.set_hull_behavior(HullBehavior::Closed)
-    }
-
     pub fn set_hull_behavior(&mut self, behavior: HullBehavior) -> &mut Self {
         self.hull_behavior = behavior;
         self

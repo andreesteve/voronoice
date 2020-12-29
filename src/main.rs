@@ -318,6 +318,17 @@ fn handle_input(
         builder.set_lloyd_relaxation_iterations(1);
         state.replace(builder.build());
         respawn = true;
+    } else if input.just_pressed(KeyCode::H) {
+        // change hull behavior
+        state.hull_behavior = match state.hull_behavior {
+            HullBehavior::Open => HullBehavior::Closed,
+            HullBehavior::Closed => HullBehavior::Open
+        };
+
+        let mut builder: VoronoiBuilder = state.voronoi.as_ref().unwrap().into();
+        builder.set_hull_behavior(state.hull_behavior);
+        state.replace(builder.build());
+        respawn = true;
     }
 
     let mouse = mouse_query.iter().next().unwrap();
