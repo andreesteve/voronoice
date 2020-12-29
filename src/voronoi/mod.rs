@@ -2,10 +2,11 @@ mod into_triangle_list;
 mod utils;
 mod edges_around_site_iterator;
 mod voronoi_mesh_generator;
+mod cell;
 
-use bevy::reflect::erased_serde::private::serde::de::value::BorrowedBytesDeserializer;
 use delaunator::{EMPTY, Triangulation, next_halfedge, triangulate};
 use self::edges_around_site_iterator::EdgesAroundSiteIterator;
+use self::cell::VoronoiCell;
 
 pub use self::voronoi_mesh_generator::VoronoiMeshGenerator;
 pub use delaunator::Point;
@@ -32,6 +33,7 @@ pub struct Voronoi {
     /// The circumcenters of each triangle (indexed by triangle / triangle's starting half-edge).
     ///
     /// For a given voronoi cell, its verteces are the circumcenters of its associated triangles.
+    /// Values whose indexes are greater than sites.len() - 1 are not actual triangle circumcenters but voronoi cell vertices added to close sites on the convex hull.
     ///
     /// # Examples
     /// ```
@@ -268,10 +270,11 @@ fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex
     let mine = circumcenters[curr_vertex].clone();
     let prev = circumcenters[prev_vertex].clone();
 
-    let top_right = Point { x: bounding_box.x, y: bounding_box.y };
-    let top_left = Point { x: -bounding_box.x, y: bounding_box.y };
-    let bottom_right = Point { x: bounding_box.x, y: -bounding_box.y };
-    let bottom_left = Point { x: -bounding_box.x, y: -bounding_box.y };
+    // FIXME: use same points for corners
+    // let top_right = Point { x: bounding_box.x, y: bounding_box.y };
+    // let top_left = Point { x: -bounding_box.x, y: bounding_box.y };
+    // let bottom_right = Point { x: bounding_box.x, y: -bounding_box.y };
+    // let bottom_left = Point { x: -bounding_box.x, y: -bounding_box.y };
 
     // close the cell by picking the previous site extension to close the polygon
     // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
@@ -338,7 +341,7 @@ fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
     pub fn new(sites: Vec<Point>) -> Self {
-        let bounding_box = Point { x: 2.0, y: 2.0 };
+        let bounding_box = Point { x: 1.0, y: 1.0 };
 
         // remove any points not within bounding box
         let sites = sites.into_iter().filter(|p| is_in_box(p, &bounding_box)).collect::<Vec<Point>>();
@@ -355,6 +358,7 @@ impl Voronoi {
                     &sites[triangulation.triangles[3* t + 1]],
                     &sites[triangulation.triangles[3* t + 2]]);
 
+                    // FIXME: this is a good approximation
                     if !is_in_box(&c, &bounding_box) {
                         c = clip_vector_to_bounding_box(&c, &bounding_box);
                     }
@@ -431,6 +435,11 @@ impl Voronoi {
             .collect();
 
         Voronoi::new(new_sites)
+    }
+
+    /// Gets a representation of a voronoi cell based on its site index.
+    pub fn get_cell(&self, site: usize) -> VoronoiCell {
+        VoronoiCell::new(site, self)
     }
 
     // /// Returns the index to the site that half-edge `e` points to.

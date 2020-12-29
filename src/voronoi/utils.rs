@@ -104,6 +104,7 @@ pub fn generate_special_case_1() -> Vec<Point> {
     sites
 }
 
+/// When constraint to a (2, 2) bounding box, this creates a case in which a triangle has a extremelly distance circumcenter. When clipped to the bounding box, it causes the voronoi cell to not contain the site.
 #[allow(dead_code)]
 pub fn generate_special_case_2() -> Vec<Point> {
     let mut sites = vec![];

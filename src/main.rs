@@ -1,6 +1,6 @@
-use std::time::Instant;
+use std::{collections::LinkedList, time::Instant};
 
-use bevy::{prelude::*, render::{camera::Camera, pipeline::PrimitiveTopology}};
+use bevy::{prelude::*, render::{camera::{Camera, PerspectiveProjection}, pipeline::PrimitiveTopology}};
 
 mod pipeline;
 use pipeline::*;
@@ -14,7 +14,9 @@ fn main() {
         .add_plugin(VertexColorPlugin)
         .add_resource(ClearColor(Color::rgb(0., 0., 0.))) //background
         .add_startup_system(setup.system())
+        .add_system(calculate_mouse_world_coords.system())
         .add_system(handle_input.system())
+        .add_system(move_camera.system())
         .run();
 }
 
@@ -90,7 +92,8 @@ const CAMERA_Y: f32 = 6.0;
 // right hand
 // triangulation anti-clockwise
 fn setup(
-    commands: &mut Commands
+    commands: &mut Commands,
+    asset_server: Res<AssetServer>
 ) {
     // let mut voronoi_loyd_1 = voronoi.loyd_relaxation();
     // voronoi_loyd_1.build();
@@ -108,11 +111,30 @@ fn setup(
     camera_t.rotate(Quat::from_rotation_ypr(0.0, 0.0, 180f32.to_radians()));
 
     commands
+        // ui camera
+        .spawn(CameraUiBundle::default())
         // camera
         .spawn(Camera3dBundle {
             transform: camera_t,
             ..Default::default()
-        });
+        })
+        .spawn(TextBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                ..Default::default()
+            },
+            text: Text {
+                value: "(0, 0)".to_string(),
+                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                style: TextStyle {
+                    font_size: 25.0,
+                    color: Color::WHITE,
+                    ..Default::default()
+                },
+            },
+            ..Default::default()
+        })
+        .with(Mouse::default());
 }
 
 fn get_closest_site(voronoi: &Voronoi, pos: Vec3) -> Option<(usize, f32)> {
@@ -121,20 +143,117 @@ fn get_closest_site(voronoi: &Voronoi, pos: Vec3) -> Option<(usize, f32)> {
 }
 
 #[derive(Default)]
+#[derive(Debug)]
+struct Mouse {
+    world_pos : Vec3
+}
+const MOUSE_TEXT_OFFSET: f32 = 15.0;
+fn calculate_mouse_world_coords(mut mouse_query: Query<(&mut Mouse, &mut Text, &mut Style)>, query: Query<(&Transform, &Camera), With<PerspectiveProjection>>, windows: Res<Windows>) {
+    let (mut mouse,  mut text, mut text_style) = mouse_query.iter_mut().next().unwrap();
+
+    for ((camera_transform, camera), window) in query.iter().zip(windows.iter()) {
+        let screen_size = Vec2::from([window.width() as f32, window.height() as f32]);
+        let cursor_screen_pos = window.cursor_position().unwrap_or(Vec2::zero());
+
+        // normalize cursor coords (-1 to 1)
+        let cursor_pos_normalized = (2.0 * (cursor_screen_pos / screen_size) - Vec2::new(1.0, 1.0)).extend(1.0);
+        let view_matrix = camera_transform.compute_matrix();
+        let screen_normal_coords_to_world = view_matrix * camera.projection_matrix.inverse();
+
+        let cursor_world_pos = screen_normal_coords_to_world.transform_point3(cursor_pos_normalized);
+        let ray: Vec3 = cursor_world_pos - camera_transform.translation;
+
+        // FIXME I put this together to debug voronoi generator
+        // this is assuming camera looking down Y
+        // genealize this ray-plane intersection logic based on the camera forward vector
+        let mut world_pos = -camera_transform.translation.y * (ray / ray.y);
+        world_pos.y = 0.0;
+        mouse.world_pos = world_pos;
+        text.value = format!("({:.2}, {:.2})", mouse.world_pos.z, mouse.world_pos.x);
+
+        text_style.position.left = Val::Px(cursor_screen_pos.x + MOUSE_TEXT_OFFSET);
+        text_style.position.top = Val::Px(window.height() - cursor_screen_pos.y + MOUSE_TEXT_OFFSET);
+    }
+}
+
+fn move_camera(input: Res<Input<KeyCode>>, mut camera_query: Query<&mut Transform, (With<Camera>, With<PerspectiveProjection>)>) {
+    if input.pressed(KeyCode::W) {
+        for mut t in camera_query.iter_mut() {
+            let y_move = 0.1f32.min((t.translation.y - 0.7).powf(10.0));
+            t.translation.y -= y_move;
+        }
+    } else if input.pressed(KeyCode::S) {
+        for mut t in camera_query.iter_mut() {
+            t.translation.y += 0.1;
+        }
+    } else if input.pressed(KeyCode::R) {
+        for mut t in camera_query.iter_mut() {
+            t.translation.y = CAMERA_Y;
+        }
+    }
+}
+
+#[derive(Default)]
 struct State {
     voronoi_opts: VoronoiMeshOptions,
     voronoi: Option<Voronoi>,
     size: usize,
+    undo_list: LinkedList<Voronoi>,
+    forward_list: LinkedList<Voronoi>,
 }
+
+impl State {
+    fn replace(&mut self, v: Voronoi) -> Option<&Voronoi> {
+        if let Some(old) = self.voronoi.replace(v) {
+            self.undo_list.push_front(old);
+
+            self.undo_list.front()
+        } else {
+            None
+        }
+    }
+
+    fn undo(&mut self) -> Option<&Voronoi> {
+        if let Some(prev) = self.undo_list.pop_front() {
+            if let Some(curr) = self.voronoi.replace(prev) {
+                self.forward_list.push_front(curr);
+                self.forward_list.front()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn undo_forward(&mut self) -> Option<&Voronoi> {
+        if let Some(prev) = self.forward_list.pop_front() {
+            if let Some(curr) = self.voronoi.replace(prev) {
+                self.undo_list.push_front(curr);
+                self.undo_list.front()
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    fn clear(&mut self) {
+        self.voronoi.take();
+        self.undo_list.clear();
+        self.forward_list.clear();
+    }
+}
+
 fn handle_input(
     mut state: Local<State>,
     input: Res<Input<KeyCode>>,
     mouse_button_input: Res<Input<MouseButton>>,
-    windows: Res<Windows>,
     meshes: ResMut<Assets<Mesh>>,
     commands: &mut Commands,
     query: Query<Entity, With<VertexColor>>,
-    mut camera_query: Query<(&mut Transform, &GlobalTransform, &Camera), With<Camera>>) {
+    mouse_query: Query<&Mouse>) {
 
     let mut respawn = false;
 
@@ -166,78 +285,90 @@ fn handle_input(
         respawn = true;
     } else if input.just_pressed(KeyCode::L) {
         // run loyd relaxation
-        state.voronoi = Some(state.voronoi.take().unwrap().lloyd_relaxation());
+        let new = state.voronoi.as_ref().unwrap().lloyd_relaxation();
+        state.replace(new);
         respawn = true;
     }
 
 
-    if mouse_button_input.just_pressed(MouseButton::Left) || mouse_button_input.just_pressed(MouseButton::Right) {
-        let (camera_transform, _, camera) = camera_query.iter_mut().next().unwrap();
-        let window = windows.iter().next().unwrap();
-        let screen_size = Vec2::from([window.width() as f32, window.height() as f32]);
-        let cursor_screen_pos = window.cursor_position().unwrap_or(Vec2::zero());
-
-        // normalize cursor coords (-1 to 1)
-        let cursor_pos_normalized = (2.0 * (cursor_screen_pos / screen_size) - Vec2::new(1.0, 1.0)).extend(1.0);
-        let view_matrix = camera_transform.compute_matrix();
-        let screen_normal_coords_to_world = view_matrix * camera.projection_matrix.inverse();
-
-        let cursor_world_pos = screen_normal_coords_to_world.transform_point3(cursor_pos_normalized);
-        let ray: Vec3 = cursor_world_pos - camera_transform.translation;
-
-        // FIXME I put this together to debug voronoi generator
-        // this is assuming camera looking down Y
-        // genealize this ray-plane intersection logic based on the camera forward vector
-        let mut world_pos = -camera_transform.translation.y * (ray / ray.y);
-        world_pos.y = 0.0;
-
+    let mouse = mouse_query.iter().next().unwrap();
+    if mouse_button_input.just_pressed(MouseButton::Left) || mouse_button_input.just_pressed(MouseButton::Right) || mouse_button_input.just_pressed(MouseButton::Middle) {
         // take sites and change based on type of click
-        let point = voronoi::Point { x: world_pos.z as f64, y: world_pos.x  as f64 };
-        let mut old = state.voronoi.take().unwrap();
-        let closest = get_closest_site(&old, world_pos);
+        let point = voronoi::Point { x: mouse.world_pos.z as f64, y: mouse.world_pos.x  as f64 };
+
+        let closest_site = get_closest_site(state.voronoi.as_ref().unwrap(), mouse.world_pos);
         if mouse_button_input.just_pressed(MouseButton::Left) {
             // do not let adding points extremelly close as this degenerate triangulation
-            if closest.is_none() || closest.unwrap().1 > 0.001 {
-                old.sites.push(point);
-                info!("Site added: {:?}", world_pos);
+            if closest_site.is_none() || closest_site.unwrap().1 > 0.001 {
+                let mut points = state.voronoi.as_ref().unwrap().sites.clone();
+                points.push(point);
+                state.replace(Voronoi::new(points));
+                info!("Site added: {:?}", mouse.world_pos);
+                respawn = true;
             }
-        } else if (old.sites.len() > 3) { // don't let it go below 3 as it won't triangulate
+        } else if mouse_button_input.just_pressed(MouseButton::Right) && state.voronoi.as_ref().unwrap().sites.len() > 3 { // don't let it go below 3 as it won't triangulate
             // if right click, get closest point and remove it
-            if let Some((i, dist)) = closest {
+            if let Some((i, dist)) = closest_site {
                 if dist < 0.2 {
-                    old.sites.remove(i);
+                    let mut points = state.voronoi.as_ref().unwrap().sites.clone();
+                    points.push(point);
+                    points.remove(i);
+                    state.replace(Voronoi::new(points));
                     info!("Site removed: {}", i);
+                    respawn = true;
+                }
+            }
+        } else if mouse_button_input.just_pressed(MouseButton::Middle) {
+            // print info for closest site
+            if let Some((site, dist)) = closest_site {
+                if dist < 0.2 {
+                    let cell = state.voronoi.as_ref().unwrap().get_cell(site);
+                    println!("{:#?}", cell);
                 }
             }
         }
-
-        state.voronoi = Some(Voronoi::new(old.sites));
-        respawn = true;
     }
 
     // change number of points
     if input.just_pressed(KeyCode::Up) {
         respawn = true;
         state.size += 100;
-        state.voronoi = Some(generate_voronoi(state.size));
+        let size = state.size;
+        state.replace(generate_voronoi(size));
     } else if input.just_pressed(KeyCode::Down) {
         respawn = true;
         state.size = state.size.max(120) - 100;
-        state.voronoi = Some(generate_voronoi(state.size));
+        let size = state.size;
+        state.replace(generate_voronoi(size));
     } else if input.just_pressed(KeyCode::PageUp) {
         respawn = true;
         state.size += 1000;
-        state.voronoi = Some(generate_voronoi(state.size));
+        let size = state.size;
+        state.replace(generate_voronoi(size));
     } else if input.just_pressed(KeyCode::PageDown) {
         respawn = true;
         state.size = state.size.max(1020) - 1000;
-        state.voronoi = Some(generate_voronoi(state.size));
+        let size = state.size;
+        state.replace(generate_voronoi(size));
+    }
+
+    if input.pressed(KeyCode::LControl) {
+        if input.just_pressed(KeyCode::Z) {
+            println!("Undoing. Undo list size: {}, forward list size: {}", state.undo_list.len(), state.forward_list.len());
+            state.undo();
+            respawn = true;
+        } else if input.just_pressed(KeyCode::Y) {
+            println!("Undoing forward. Undo list size: {}, forward list size: {}", state.undo_list.len(), state.forward_list.len());
+            state.undo_forward();
+            respawn = true;
+        }
     }
 
     // span new voronoi with new points
     if input.just_pressed(KeyCode::G) {
         respawn = true;
-        state.voronoi = Some(generate_voronoi(state.size));
+        // clean up state so it gets fully regenerated
+        state.clear();
     }
 
     if respawn {
@@ -245,21 +376,9 @@ fn handle_input(
             commands.despawn(e);
         }
 
-        spawn_voronoi(commands, meshes, state.voronoi.as_ref().expect("Where is my voronoi"), &state.voronoi_opts);
-    }
-
-    if input.pressed(KeyCode::W) {
-        for (mut t, _, _) in camera_query.iter_mut() {
-            let y_move = 0.1f32.min((t.translation.y - 0.7).powf(10.0));
-            t.translation.y -= y_move;
-        }
-    } else if input.pressed(KeyCode::S) {
-        for (mut t, _, _) in camera_query.iter_mut() {
-            t.translation.y += 0.1;
-        }
-    } else if input.pressed(KeyCode::R) {
-        for (mut t, _, _) in camera_query.iter_mut() {
-            t.translation.y = CAMERA_Y;
+        // may not exist after clean up
+        if let Some(voronoi) = &state.voronoi {
+            spawn_voronoi(commands, meshes, voronoi, &state.voronoi_opts);
         }
     }
 
