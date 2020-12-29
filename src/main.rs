@@ -3,10 +3,10 @@ use std::{collections::LinkedList, time::Instant};
 use bevy::{prelude::*, render::{camera::{Camera, PerspectiveProjection}, pipeline::PrimitiveTopology}};
 
 mod pipeline;
-use pipeline::*;
-
 mod voronoi;
-use crate::voronoi::Voronoi;
+
+use pipeline::*;
+use crate::voronoi::*;
 
 fn main() {
     App::build()
@@ -26,20 +26,6 @@ fn color_white(_i: usize) -> Color {
 
 fn color_red(_i: usize) -> Color {
     Color::RED
-}
-
-fn generate_voronoi(size: usize) -> Voronoi {
-    let start = Instant::now();
-    //let range = (-1.0, 1.0);
-    //let voronoi = Voronoi::new_with_random_sites(size, range, range);
-    //let voronoi = Voronoi::new(voronoi::generate_circle_sites(size));
-    //let voronoi = Voronoi::new(voronoi::generate_square_sites(2, 2));
-    //let voronoi = Voronoi::new(voronoi::generate_triangle_sites());
-    let voronoi = Voronoi::new(voronoi::generate_special_case_2());
-
-    println!("Generated new voronoi of size {} in {:?}", size, start.elapsed());
-
-    voronoi
 }
 
 struct VoronoiMeshOptions {
@@ -200,6 +186,7 @@ struct State {
     size: usize,
     undo_list: LinkedList<Voronoi>,
     forward_list: LinkedList<Voronoi>,
+    hull_behavior: HullBehavior,
 }
 
 impl State {
@@ -244,6 +231,48 @@ impl State {
         self.undo_list.clear();
         self.forward_list.clear();
     }
+
+    fn new_builder(&self) -> VoronoiBuilder {
+        let mut builder = VoronoiBuilder::default();
+        builder
+            .set_hull_behavior(self.hull_behavior);
+
+        builder
+    }
+
+    fn new_voronoi(&mut self, size: usize) {
+        let start = Instant::now();
+        self.size = size;
+        //let range = (-1.0, 1.0);
+        //builder.random_sites(size, range, range);
+        //builder.generate_circle_sites(size);
+        //builder.generate_square_sites(2, 2);
+        //builder.generate_triangle_sites();
+        let mut builder = self.new_builder();
+        builder.generate_special_case_2();
+        let voronoi = builder.build();
+        println!("Generated new voronoi of size {} in {:?}", self.size, start.elapsed());
+
+        self.replace(voronoi);
+    }
+
+    fn add_site_to_voronoi(&mut self, site: Point) {
+        let mut sites = self.voronoi.as_ref().unwrap().sites.clone();
+        sites.push(site);
+
+        let mut builder = self.new_builder();
+        builder.set_sites(sites);
+        self.replace(builder.build());
+    }
+
+    fn remove_site_to_voronoi(&mut self, site_index: usize) {
+        let mut sites = self.voronoi.as_ref().unwrap().sites.clone();
+        sites.remove(site_index);
+
+        let mut builder = self.new_builder();
+        builder.set_sites(sites);
+        self.replace(builder.build());
+    }
 }
 
 fn handle_input(
@@ -260,8 +289,7 @@ fn handle_input(
     // no voronoi, generate random one
     if !state.voronoi.is_some() {
         respawn = true;
-        state.size = 20;
-        state.voronoi = Some(generate_voronoi(state.size));
+        state.new_voronoi(20);
     }
 
     // span new voronoi with new rendering but same points
@@ -285,11 +313,12 @@ fn handle_input(
         respawn = true;
     } else if input.just_pressed(KeyCode::L) {
         // run loyd relaxation
-        let new = state.voronoi.as_ref().unwrap().lloyd_relaxation();
-        state.replace(new);
+        let existing_voronoi = state.voronoi.as_ref().unwrap();
+        let mut builder: VoronoiBuilder = existing_voronoi.into();
+        builder.set_lloyd_relaxation_iterations(1);
+        state.replace(builder.build());
         respawn = true;
     }
-
 
     let mouse = mouse_query.iter().next().unwrap();
     if mouse_button_input.just_pressed(MouseButton::Left) || mouse_button_input.just_pressed(MouseButton::Right) || mouse_button_input.just_pressed(MouseButton::Middle) {
@@ -300,9 +329,7 @@ fn handle_input(
         if mouse_button_input.just_pressed(MouseButton::Left) {
             // do not let adding points extremelly close as this degenerate triangulation
             if closest_site.is_none() || closest_site.unwrap().1 > 0.001 {
-                let mut points = state.voronoi.as_ref().unwrap().sites.clone();
-                points.push(point);
-                state.replace(Voronoi::new(points));
+                state.add_site_to_voronoi(point);
                 info!("Site added: {:?}", mouse.world_pos);
                 respawn = true;
             }
@@ -310,9 +337,7 @@ fn handle_input(
             // if right click, get closest point and remove it
             if let Some((i, dist)) = closest_site {
                 if dist < 0.2 {
-                    let mut points = state.voronoi.as_ref().unwrap().sites.clone();
-                    points.remove(i);
-                    state.replace(Voronoi::new(points));
+                    state.remove_site_to_voronoi(i);
                     info!("Site removed: {}", i);
                     respawn = true;
                 }
@@ -329,26 +354,19 @@ fn handle_input(
     }
 
     // change number of points
+    let size = state.size;
     if input.just_pressed(KeyCode::Up) {
         respawn = true;
-        state.size += 100;
-        let size = state.size;
-        state.replace(generate_voronoi(size));
+        state.new_voronoi(size + 100);
     } else if input.just_pressed(KeyCode::Down) {
         respawn = true;
-        state.size = state.size.max(120) - 100;
-        let size = state.size;
-        state.replace(generate_voronoi(size));
+        state.new_voronoi(size.max(120) - 100);
     } else if input.just_pressed(KeyCode::PageUp) {
         respawn = true;
-        state.size += 1000;
-        let size = state.size;
-        state.replace(generate_voronoi(size));
+        state.new_voronoi(size + 1000);
     } else if input.just_pressed(KeyCode::PageDown) {
         respawn = true;
-        state.size = state.size.max(1020) - 1000;
-        let size = state.size;
-        state.replace(generate_voronoi(size));
+        state.new_voronoi(size.max(1020) - 1000);
     }
 
     if input.pressed(KeyCode::LControl) {

@@ -3,19 +3,28 @@ mod utils;
 mod edges_around_site_iterator;
 mod voronoi_mesh_generator;
 mod cell;
+mod voronoi_builder;
 
 use delaunator::{EMPTY, Triangulation, next_halfedge, triangulate};
 use self::edges_around_site_iterator::EdgesAroundSiteIterator;
 use self::cell::VoronoiCell;
 
+pub use self::voronoi_builder::*;
 pub use self::voronoi_mesh_generator::VoronoiMeshGenerator;
 pub use delaunator::Point;
 pub use self::utils::to_f32_vec;
-pub use self::utils::generate_circle_sites;
-pub use self::utils::generate_square_sites;
-pub use self::utils::generate_triangle_sites;
-pub use self::utils::generate_special_case_1;
-pub use self::utils::generate_special_case_2;
+
+#[derive(Debug, Clone, Copy)]
+pub enum HullBehavior {
+    Open,
+    Closed
+}
+
+impl Default for HullBehavior {
+    fn default() -> Self {
+        HullBehavior::Open
+    }
+}
 
 /// The dual delauney-voronoi graph.
 ///
@@ -29,6 +38,7 @@ pub struct Voronoi {
 
     num_of_triangles: usize,
     triangulation: Triangulation,
+    hull_behavior: HullBehavior,
 
     /// The circumcenters of each triangle (indexed by triangle / triangle's starting half-edge).
     ///
@@ -54,6 +64,7 @@ pub struct Voronoi {
 impl std::fmt::Debug for Voronoi {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         f.debug_struct("Voronoi")
+            .field("hull_behavior", &self.hull_behavior)
             .field("sites", &self.sites)
             .field("circumcenters", &self.circumcenters)
             .field("cell_triangles", &self.cell_triangles)
@@ -340,7 +351,7 @@ fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex
 // For instances, diag.triangles.len() is the number of starting edges and triangles in the triangulation, you can think of diag.triangles[e] as 'e' as being both the index of the
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
-    pub fn new(sites: Vec<Point>) -> Self {
+    pub fn new(sites: Vec<Point>, hull_behavior: HullBehavior) -> Self {
         let bounding_box = Point { x: 1.0, y: 1.0 };
 
         // remove any points not within bounding box
@@ -358,7 +369,8 @@ impl Voronoi {
                     &sites[triangulation.triangles[3* t + 1]],
                     &sites[triangulation.triangles[3* t + 2]]);
 
-                    // FIXME: this is a good approximation
+                    // FIXME: this is a good approximation when sites are close to origin
+                    // need to instead project circumcenters, project the cell vectors instead
                     if !is_in_box(&c, &bounding_box) {
                         c = clip_vector_to_bounding_box(&c, &bounding_box);
                     }
@@ -385,22 +397,9 @@ impl Voronoi {
             triangulation,
             num_of_triangles,
             cell_triangles,
-            sites
+            sites,
+            hull_behavior
         }
-    }
-
-    #[allow(dead_code)]
-    pub fn new_with_random_sites(size: usize, x_range: (f64, f64), y_range: (f64, f64)) -> Voronoi {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
-        let x_range = rand::distributions::Uniform::new(x_range.0, x_range.1);
-        let y_range = rand::distributions::Uniform::new(y_range.0, y_range.1);
-        let sites = (0..size)
-            .map(|_| Point { x: rng.sample(x_range), y: rng.sample(y_range) })
-            .collect();
-
-        Voronoi::new(sites)
     }
 
     /// Returns an iterator that walks through each vertex of a voronoi cell in counter-clockwise manner.
@@ -408,33 +407,6 @@ impl Voronoi {
         self.cell_triangles[cell].iter().map(move |t| {
             &self.circumcenters[*t]
         })
-    }
-
-    #[allow(dead_code)]
-    pub fn lloyd_relaxation(&self) -> Voronoi {
-        fn calculate_approximated_cetroid<'a>(points: impl Iterator<Item = &'a Point>) -> Point {
-            let mut r = Point { x: 0.0 , y: 0.0 };
-            let mut n = 0;
-            for p in points {
-                r.x += p.x;
-                r.y += p.y;
-                n += 1;
-            }
-
-            let n = n as f64;
-            r.x /= n;
-            r.y /= n;
-
-            r
-        }
-
-        // get verteces for each cell and calculate centroid
-        // use the approximated cell centroid as new sites
-        let new_sites = (0..self.sites.len())
-            .map(|c| calculate_approximated_cetroid(self.get_cell_verteces(c)))
-            .collect();
-
-        Voronoi::new(new_sites)
     }
 
     /// Gets a representation of a voronoi cell based on its site index.
