@@ -311,7 +311,6 @@ fn handle_input(
             if let Some((i, dist)) = closest_site {
                 if dist < 0.2 {
                     let mut points = state.voronoi.as_ref().unwrap().sites.clone();
-                    points.push(point);
                     points.remove(i);
                     state.replace(Voronoi::new(points));
                     info!("Site removed: {}", i);
