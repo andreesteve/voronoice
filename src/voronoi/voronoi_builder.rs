@@ -1,4 +1,4 @@
-use super::{Point, Voronoi, HullBehavior};
+use super::{BoundingBox, HullBehavior, Point, Voronoi};
 use super::utils::calculate_approximated_cetroid;
 
 #[derive(Default)]
@@ -6,7 +6,7 @@ pub struct VoronoiBuilder {
     sites: Option<Vec<Point>>,
     hull_behavior: HullBehavior,
     lloyd_iterations: usize,
-    bounding_box: Option<Point>
+    bounding_box: Option<BoundingBox>
 }
 
 impl VoronoiBuilder {
@@ -15,7 +15,7 @@ impl VoronoiBuilder {
         self
     }
 
-    pub fn set_bounding_box(&mut self, bounding_box: Point) -> &mut Self {
+    pub fn set_bounding_box(&mut self, bounding_box: BoundingBox) -> &mut Self {
         self.bounding_box.replace(bounding_box);
         self
     }
@@ -34,7 +34,7 @@ impl VoronoiBuilder {
         let v = Voronoi::new(
             self.sites.take().expect("Cannot build voronoi without sites. Call set_sites() first."),
             self.hull_behavior,
-            self.bounding_box.take().unwrap_or(Point { x: 1.0, y: 0.0 })
+            self.bounding_box.take().unwrap_or(BoundingBox::new_centered_square(1.0))
         );
 
         self.perform_lloyd_relaxation(v)
@@ -140,7 +140,9 @@ impl VoronoiBuilder {
         self.set_sites(sites)
     }
 
-    /// When constraint to a (2, 2) bounding box, this creates a case in which a triangle has a extremelly distance circumcenter. When clipped to the bounding box, it causes the voronoi cell to not contain the site.
+    /// When constraint to a (1, 1) bounding box, this creates a case in which two degenerated triangles share an edge. Both have extremelly distant circumcenters.
+    /// When clipped to the bounding box, it causes the voronoi cell to not contain the site. This is due to the approximation of circumcenter projection to the bounding box
+    /// instead of correctly clipping the edges instead.
     #[allow(dead_code)]
     pub fn generate_special_case_2(&mut self) -> &mut Self {
         let mut sites = vec![];

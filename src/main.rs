@@ -96,8 +96,6 @@ fn add_display_lines(commands: &mut ChildBuilder, font: &Handle<Font>) {
     .with(StatusDisplay);
 }
 
-struct BoundingBox;
-
 // right hand
 // triangulation anti-clockwise
 fn setup(
@@ -157,18 +155,19 @@ fn setup(
         })
         .with(Mouse::default())
         .spawn(PbrBundle {
-            mesh: meshes.add(get_bounding_box(1.0)),
+            mesh: meshes.add(get_bounding_box(2.0)),
             ..Default::default()
         })
-        .with(BoundingBox);
+        .with(BoundingBox::new_centered_square(43.0)); // this value does not matter
 }
 
 fn get_bounding_box(size: f32) -> Mesh {
+    let edge = size / 2.0;
     let pos = vec![
-        [-size, 0.0, -size], // bottom left
-        [-size, 0.0, size], // bottom right
-        [size, 0.0, size], // top right
-        [size, 0.0, -size], // top left
+        [-edge, 0.0, -edge], // bottom left
+        [-edge, 0.0, edge], // bottom right
+        [edge, 0.0, edge], // top right
+        [edge, 0.0, -edge], // top left
     ];
 
     let mut m = Mesh::new(PrimitiveTopology::LineStrip);
@@ -258,7 +257,7 @@ struct State {
     undo_list: LinkedList<Voronoi>,
     forward_list: LinkedList<Voronoi>,
     hull_behavior: HullBehavior,
-    bounding_box: f64,
+    bounding_box: BoundingBox,
     site_type: SiteType,
 }
 impl State {
@@ -308,14 +307,14 @@ impl State {
         self.voronoi.take();
         self.undo_list.clear();
         self.forward_list.clear();
-        self.bounding_box = 1.0;
+        self.bounding_box = BoundingBox::new_centered_square(2.0);
     }
 
     fn new_builder(&self) -> VoronoiBuilder {
         let mut builder = VoronoiBuilder::default();
         builder
             .set_hull_behavior(self.hull_behavior)
-            .set_bounding_box(Point { x: self.bounding_box, y: self.bounding_box });
+            .set_bounding_box(self.bounding_box.clone());
 
         builder
     }
@@ -329,7 +328,7 @@ impl State {
         //builder.generate_square_sites(2, 2);
         //builder.generate_triangle_sites();
         let mut builder = self.new_builder();
-        let range = (-self.bounding_box / 2.0, self.bounding_box / 2.0);
+        let range = (self.bounding_box.width() / 2.0, self.bounding_box.height() / 2.0);
 
         match self.site_type {
             SiteType::Random => builder.generate_random_sites(self.size, range, range),
@@ -381,27 +380,29 @@ fn handle_input(
     // no voronoi, generate random one
     if !state.voronoi.is_some() && state.undo_list.is_empty() {
         respawn = true;
-        state.bounding_box = 1.0;
+        state.bounding_box = BoundingBox::new_centered_square(2.0);
         state.new_voronoi(20);
     }
 
     if input.just_pressed(KeyCode::PageUp) || input.just_pressed(KeyCode::PageDown) {
         if input.just_pressed(KeyCode::PageUp) {
-            state.bounding_box += 0.1;
+            let size = state.bounding_box.width() + 0.1;
+            state.bounding_box = BoundingBox::new(state.bounding_box.center().clone(), size, size);
         } else if input.just_pressed(KeyCode::PageDown) {
-            state.bounding_box = (state.bounding_box - 0.1).max(0.1);
+            let size = (state.bounding_box.width() - 0.1).max(0.1);
+            state.bounding_box = BoundingBox::new(state.bounding_box.center().clone(), size, size);
         }
 
         respawn = true;
         if let Some(v) = state.voronoi.as_ref() {
             let mut builder : VoronoiBuilder = v.into();
-            builder.set_bounding_box(Point { x: state.bounding_box, y: state.bounding_box });
+            builder.set_bounding_box(state.bounding_box.clone());
             state.replace(builder.build());
         }
+    }
 
-        for mut box_t in query_box.iter_mut() {
-            box_t.scale = Vec3::splat(state.bounding_box as f32);
-        }
+    for mut box_t in query_box.iter_mut() {
+        box_t.scale = Vec3::splat((state.bounding_box.width() / 2.0) as f32);
     }
 
     // span new voronoi with new rendering but same points
@@ -549,7 +550,7 @@ fn handle_input(
     let updates: [String; 5] = [
         format!("[H] Hull mode: {:?}", state.hull_behavior),
         format!("[P] Voronoi mesh render mode: {:?}", state.voronoi_opts.voronoi_topoloy),
-        format!("[PgUp/PgDown] Bounding box: {:.2}", state.bounding_box),
+        format!("[PgUp/PgDown] Bounding box: {:.2}", state.bounding_box.width()),
         format!("[Home] Site type: {:?}", state.site_type),
         format!("# of Sites: {}", state.voronoi.as_ref().map_or(0, |v| v.sites.len())),
     ];

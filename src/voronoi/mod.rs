@@ -4,12 +4,14 @@ mod edges_around_site_iterator;
 mod voronoi_mesh_generator;
 mod cell;
 mod voronoi_builder;
+mod bounding_box;
 //mod into_line_list;
 
 use delaunator::{EMPTY, Triangulation, next_halfedge, triangulate};
 use self::edges_around_site_iterator::EdgesAroundSiteIterator;
 use self::cell::VoronoiCell;
 
+pub use self::bounding_box::BoundingBox;
 pub use self::voronoi_builder::*;
 pub use self::voronoi_mesh_generator::VoronoiMeshGenerator;
 pub use delaunator::Point;
@@ -44,7 +46,7 @@ pub struct Voronoi {
     /// These are the sites of each voronoi cell.
     pub sites: Vec<Point>,
 
-    bounding_box: Point,
+    bounding_box: BoundingBox,
     num_of_triangles: usize,
     triangulation: Triangulation,
     hull_behavior: HullBehavior,
@@ -104,69 +106,35 @@ fn site_of_incoming(triangulation: &Triangulation, e: usize) -> usize {
     triangulation.triangles[next_halfedge(e)]
 }
 
-fn clip_vector_to_bounding_box(point: &Point, bounding_box: &Point) -> Point {
-    let box_ratio = bounding_box.y / bounding_box.y;
-    let tn = point.y / point.x;
-    let mut p = Point { x: 0.0, y: 0.0 };
+// fn clip_vector_to_bounding_box(point: &Point, bounding_box: &BoundingBox) -> Point {
+//     let box_ratio = bounding_box.y / bounding_box.y;
+//     let tn = point.y / point.x;
+//     let mut p = Point { x: 0.0, y: 0.0 };
 
-    if tn > box_ratio || tn < -box_ratio {
-        // will hit box_y or -box_y
-        let box_y = bounding_box.y * point.y.signum();
-        p.x = box_y * tn.recip();
-        p.y = box_y;
-    } else {
-        // will hit box_x or -box_x
-        let box_x = bounding_box.x * point.x.signum();
-        p.x = box_x;
-        p.y = box_x * tn;
-    }
+//     if tn > box_ratio || tn < -box_ratio {
+//         // will hit box_y or -box_y
+//         let box_y = bounding_box.y * point.y.signum();
+//         p.x = box_y * tn.recip();
+//         p.y = box_y;
+//     } else {
+//         // will hit box_x or -box_x
+//         let box_x = bounding_box.x * point.x.signum();
+//         p.x = box_x;
+//         p.y = box_x * tn;
+//     }
 
-    debug_assert!(is_in_box(&p, bounding_box), "Point {:?} clipped ({:?}) outside bounding box {:?}", point, p, bounding_box);
-    debug_assert!(p.x.abs() == bounding_box.x || p.y.abs() == bounding_box.y.abs(), "Point {:?} clipped ({:?}) outside bounding box {:?}", point, p, bounding_box);
+//     debug_assert!(bounding_box.  is_in_box(&p, bounding_box), "Point {:?} clipped ({:?}) outside bounding box {:?}", point, p, bounding_box);
+//     debug_assert!(p.x.abs() == bounding_box.x || p.y.abs() == bounding_box.y.abs(), "Point {:?} clipped ({:?}) outside bounding box {:?}", point, p, bounding_box);
 
-    p
-}
+//     p
+// }
 
-fn project_point_on_bounding_box(point: &Point, direction: &Point, bounding_box: &Point) -> Point {
-    let box_x = bounding_box.x * direction.x.signum();
-    let box_y = bounding_box.y * direction.y.signum();
+// fn project_ray_on_bounding_box(source: &Point, target: &Point, bounding_box: &Point) -> Point {
+//     let direction = Point { x: target.x - source.x, y: target.y - source.y };
+//     //project_point_on_bounding_box()
+// }
 
-    let mut p = Point { x: 0.0, y: 0.0 };
-    p.x = point.x + direction.x * (1.0 + (box_y - (point.y + direction.y)) / direction.y);
-    p.y = point.y + direction.y * (1.0 + (box_x - (point.x + direction.x)) / direction.x);
-
-    if p.x.abs() > bounding_box.x {
-        p.x = box_x;
-    }
-
-    if p.y.abs() > bounding_box.y {
-        p.y = box_y;
-    }
-
-
-    // if tn > box_ratio || tn < -box_ratio {
-    //     // will hit box_y or -box_y
-    //     let box_y = bounding_box.y * direction.y.signum();
-    //     p.x = point.x + direction.x * (1.0 + (box_y - (point.y + direction.y)) / direction.y);
-    //     p.y = box_y;
-    // } else {
-    //     // will hit box_x or - box_x
-    //     let box_x = bounding_box.x * direction.x.signum();
-    //     p.x = box_x;
-    //     p.y = point.y + direction.y * (1.0 + (box_x - (point.x + direction.x)) / direction.x);
-    // }
-
-    debug_assert!(is_in_box(&p, bounding_box), "Point {:?} with direction {:?} projected ({:?}) outside bounding box {:?}", point, direction, p, bounding_box);
-    debug_assert!(p.x.abs() == bounding_box.x || p.y.abs() == bounding_box.y.abs(), "Point {:?} with direction {:?} projected ({:?}) outside bounding box {:?}", point, direction, p, bounding_box);
-
-    p
-}
-
-fn is_in_box(point: &Point, bounding_box: &Point) -> bool {
-    point.x.abs() <= bounding_box.x && point.y.abs() <= bounding_box.y
-}
-
-fn close_hull(cells: &mut Vec<Vec<usize>>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, bounding_box: &Point) {
+fn close_hull(cells: &mut Vec<Vec<usize>>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, bounding_box: &BoundingBox) {
     // perform clock-wise walk on the sites on the hull
     let hull = &triangulation.hull;
     let mut hull_iter = hull.iter().rev().copied();
@@ -210,7 +178,7 @@ fn close_hull(cells: &mut Vec<Vec<usize>>, circumcenters: &mut Vec<Point>, trian
 }
 
 /// Calculate the triangles associated with each voronoi cell
-fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize, bounding_box: &Point) -> Vec<Vec<usize>> {
+fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize, bounding_box: &BoundingBox) -> Vec<Vec<usize>> {
     let mut seen_sites = vec![false; num_of_sites];
     let mut cells = vec![Vec::new(); num_of_sites];
 
@@ -243,25 +211,30 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
             // if there is no half-edge associated with the left-most edge, the edge is on the hull
             // thus this cell will not "close" and it needs to be extended and clipped
             if triangulation.halfedges[leftmost_edge] == EMPTY && (hull_behavior == HullBehavior::Extended || hull_behavior == HullBehavior::Closed)  {
-                // get the point that the edge comes from
-                let source_site = triangulation.triangles[leftmost_edge];
-                let source_point = &sites[source_site];
-                let target_point = &sites[site];
+                // this is the vertex we will extend from
+                let cell_vertex_to_extend = &circumcenters[cell[0]];
 
-                // the line extension must be perpendicular to the hull edge
-                // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
-                let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
+                // if vertex is outside bounding box, no need to extend it
+                if bounding_box.is_inside(cell_vertex_to_extend) {
+                    // get the point that the edge comes from
+                    let source_site = triangulation.triangles[leftmost_edge];
+                    let source_point = &sites[source_site];
+                    let target_point = &sites[site];
 
-                // get voronoi vertex that needs to be extended and extend it
-                let cell_vertex = &circumcenters[cell[0]];
-                let projected = project_point_on_bounding_box(cell_vertex, &orthogonal, bounding_box);
+                    // the line extension must be perpendicular to the hull edge
+                    // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
+                    let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
 
-                // add extended vertex as a "fake" circumcenter
-                let vertex_index = circumcenters.len();
-                // this point is orthogonally extended towards the outside from the current cell[0], thus it needs to come in first
-                // be keep verteces in counterclockwise order
-                cell.insert(0, vertex_index);
-                circumcenters.push(projected);
+                    // get voronoi vertex that needs to be extended and extend it
+                    let projected = bounding_box.project_vector(cell_vertex_to_extend, &orthogonal);
+
+                    // add extended vertex as a "fake" circumcenter
+                    let vertex_index = circumcenters.len();
+                    // this point is orthogonally extended towards the outside from the current cell[0], thus it needs to come in first
+                    // be keep verteces in counterclockwise order
+                    cell.insert(0, vertex_index);
+                    circumcenters.push(projected);
+                }
             }
         }
     }
@@ -294,7 +267,7 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
     cells
 }
 
-fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex: usize, curr_vertex: usize, bounding_box: &Point) {
+fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex: usize, curr_vertex: usize, bounding_box: &BoundingBox) {
     let mine = circumcenters[curr_vertex].clone();
     let prev = circumcenters[prev_vertex].clone();
 
@@ -307,6 +280,7 @@ fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex
     // close the cell by picking the previous site extension to close the polygon
     // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
     cell.insert(cell.len() - 1, prev_vertex);
+    let bounding_box = bounding_box.top_right();
 
     if mine.x.abs() == bounding_box.x && prev.x.abs() == bounding_box.x && mine.x != prev.x {
         println!("Case 2: mine {:?} prev {:?}", mine, prev);
@@ -368,9 +342,9 @@ fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex
 // For instances, diag.triangles.len() is the number of starting edges and triangles in the triangulation, you can think of diag.triangles[e] as 'e' as being both the index of the
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
-    pub fn new(sites: Vec<Point>, hull_behavior: HullBehavior, bounding_box: Point) -> Option<Self> {
+    pub fn new(sites: Vec<Point>, hull_behavior: HullBehavior, bounding_box: BoundingBox) -> Option<Self> {
         // remove any points not within bounding box
-        let sites = sites.into_iter().filter(|p| is_in_box(p, &bounding_box)).collect::<Vec<Point>>();
+        let sites = sites.into_iter().filter(|p| bounding_box.is_inside(p)).collect::<Vec<Point>>();
 
         let triangulation = triangulate(&sites)?;
 
@@ -381,16 +355,16 @@ impl Voronoi {
         // calculate circuncenter of each triangle
         let mut circumcenters = (0..num_of_triangles)
             .map(|t| {
-                let mut c= cicumcenter(
+                let c = cicumcenter(
                     &sites[triangulation.triangles[3* t]],
                     &sites[triangulation.triangles[3* t + 1]],
                     &sites[triangulation.triangles[3* t + 2]]);
 
                     // FIXME: this is a good approximation when sites are close to origin
                     // need to instead project circumcenters, project the cell vectors instead
-                    if !is_in_box(&c, &bounding_box) {
-                        c = clip_vector_to_bounding_box(&c, &bounding_box);
-                    }
+                    // if !is_in_box(&c, &bounding_box) {
+                    //     c = clip_vector_to_bounding_box(&c, &bounding_box);
+                    // }
 
                     c
             })
