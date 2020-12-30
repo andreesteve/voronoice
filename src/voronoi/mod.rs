@@ -17,13 +17,20 @@ pub use self::utils::to_f32_vec;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HullBehavior {
-    Open,
+    /// No processing is done for the sites on the hull.
+    /// This means cells on the hull do not have its edges extended to the bounding box, nor closed.
+    None,
+
+    /// Cells on the hull are only extended to the bounding box, but no additional verteces are added to make it a valid polygon.
+    Extended,
+
+    /// Cells on the hull are extended and closed such that they form a valid polygon.
     Closed
 }
 
 impl Default for HullBehavior {
     fn default() -> Self {
-        HullBehavior::Open
+        HullBehavior::Closed
     }
 }
 
@@ -234,7 +241,7 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
 
             // if there is no half-edge associated with the left-most edge, the edge is on the hull
             // thus this cell will not "close" and it needs to be extended and clipped
-            if triangulation.halfedges[leftmost_edge] == EMPTY {
+            if triangulation.halfedges[leftmost_edge] == EMPTY && (hull_behavior == HullBehavior::Extended || hull_behavior == HullBehavior::Closed)  {
                 // get the point that the edge comes from
                 let source_site = triangulation.triangles[leftmost_edge];
                 let source_point = &sites[source_site];

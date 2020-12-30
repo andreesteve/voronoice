@@ -98,7 +98,7 @@ impl VoronoiMeshGenerator<'_> {
         match self.topology {
             PrimitiveTopology::LineList => {
                 match self.voronoi.hull_behavior {
-                    HullBehavior::Open => {
+                    HullBehavior::None | HullBehavior::Extended => {
                         // when hull is not closed, we cannot wrap line list or it will render extra edges
                         let hull_verteces = self.voronoi.cells()
                             .filter(|c| c.is_on_hull())

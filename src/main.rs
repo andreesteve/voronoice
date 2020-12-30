@@ -321,8 +321,9 @@ fn handle_input(
     } else if input.just_pressed(KeyCode::H) {
         // change hull behavior
         state.hull_behavior = match state.hull_behavior {
-            HullBehavior::Open => HullBehavior::Closed,
-            HullBehavior::Closed => HullBehavior::Open
+            HullBehavior::None => HullBehavior::Extended,
+            HullBehavior::Extended => HullBehavior::Closed,
+            HullBehavior::Closed => HullBehavior::None
         };
         println!("Hull behavior set to {:?}", state.hull_behavior);
 
