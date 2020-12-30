@@ -74,27 +74,56 @@ fn spawn_voronoi(commands: &mut Commands, mut meshes: ResMut<Assets<Mesh>>, voro
 }
 
 const CAMERA_Y: f32 = 6.0;
+struct StatusDisplay;
+
+fn add_display_lines(commands: &mut ChildBuilder, font: &Handle<Font>) {
+    commands.spawn(TextBundle {
+        style: Style {
+            size: Size::new(Val::Px(500.0), Val::Px(40.0)),
+            ..Default::default()
+        },
+        text: Text {
+            value: "".to_string(),
+            font: font.clone(),
+            style: TextStyle {
+                font_size: 25.0,
+                color: Color::WHITE,
+                ..Default::default()
+            },
+        },
+        ..Default::default()
+    })
+    .with(StatusDisplay);
+}
 
 // right hand
 // triangulation anti-clockwise
 fn setup(
     commands: &mut Commands,
-    asset_server: Res<AssetServer>
+    asset_server: Res<AssetServer>,
+    mut materials: ResMut<Assets<ColorMaterial>>
 ) {
-    // let mut voronoi_loyd_1 = voronoi.loyd_relaxation();
-    // voronoi_loyd_1.build();
-
-    // let mut voronoi_loyd_2 = voronoi_loyd_1.loyd_relaxation();
-    // voronoi_loyd_2.build();
-
-    // let mut voronoi_loyd_3 = voronoi_loyd_2.loyd_relaxation();
-    // voronoi_loyd_3.build();
-
     let camera_pos = Vec3::new(0.000001, CAMERA_Y, 0.0);
     let mut camera_t = Transform::from_translation(camera_pos)
         .looking_at(Vec3::default(), Vec3::unit_y());
     // roll camera so Z point up, and X right
     camera_t.rotate(Quat::from_rotation_ypr(0.0, 0.0, 180f32.to_radians()));
+
+    let font_handle = asset_server.load("fonts/FiraSans-Bold.ttf");
+    commands.spawn(NodeBundle{
+        style: Style {
+            size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+            //align_content: AlignContent::Center,
+            flex_direction: FlexDirection::ColumnReverse,
+            ..Default::default()
+        },
+        material: materials.add(Color::NONE.into()),
+        ..Default::default()
+    }).with_children(|parent| {
+        add_display_lines(parent, &font_handle);
+        add_display_lines(parent, &font_handle);
+        add_display_lines(parent, &font_handle);
+    });
 
     commands
         // ui camera
@@ -111,7 +140,7 @@ fn setup(
             },
             text: Text {
                 value: "(0, 0)".to_string(),
-                font: asset_server.load("fonts/FiraSans-Bold.ttf"),
+                font: font_handle,
                 style: TextStyle {
                     font_size: 25.0,
                     color: Color::WHITE,
@@ -282,6 +311,7 @@ fn handle_input(
     meshes: ResMut<Assets<Mesh>>,
     commands: &mut Commands,
     query: Query<Entity, With<VertexColor>>,
+    mut query_text: Query<&mut Text, With<StatusDisplay>>,
     mouse_query: Query<&Mouse>) {
 
     let mut respawn = false;
@@ -414,6 +444,15 @@ fn handle_input(
 
     if input.just_pressed(KeyCode::B) {
         println!("{:#?}", state.voronoi);
+    }
+
+    let updates: [String; 2] = [
+        format!("Hull mode: {:?}", state.hull_behavior),
+        format!("Voronoi mesh render mode: {:?}", state.voronoi_opts.voronoi_topoloy),
+    ];
+
+    for (mut text, update) in query_text.iter_mut().zip(&updates) {
+        text.value = update.clone();
     }
 }
 
