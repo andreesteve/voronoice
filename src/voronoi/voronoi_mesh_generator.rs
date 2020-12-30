@@ -2,9 +2,12 @@ use bevy::{
     prelude::*,
     render::{mesh::{Indices, Mesh}, pipeline::PrimitiveTopology},
 };
-use utils::into_line_list;
-
-use super::{Voronoi, utils, into_triangle_list::*};
+use utils::{into_line_list_wrap, into_line_list};
+use super::{
+    utils,
+    HullBehavior, Voronoi,
+    into_triangle_list::*,
+};
 
 pub struct VoronoiMeshGenerator<'a> {
     pub voronoi: &'a Voronoi,
@@ -91,48 +94,49 @@ impl VoronoiMeshGenerator<'_> {
         mesh
     }
 
-    /// Iterates over the graph and build the voronoi cells vertex list.
-    /// It walks through all the delauney triangles associated with of a voronoi cell based on a starting delauney half-edge.
-    /// It returns a list of triangles whose circumcenters are the verteces of the voronoi cell.
-    ///
-    /// If the starting edge is outgoing from a site, the iterator returns triangles in counter-clockwise order; for incoming edges the iteration is clock-wise.
-    /// i.e. for any ```t``` returned by this iterator ```voronoi.circumcenters[t]``` is a vertex of the voronoi cell.
-    /// Each voronoi cell half-edge is associated with a delauney half-edges. Thus any delauney half-edge associated with this cell will allow this iterator to list all vertices.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// // Counter clock-wise prints all verteces for a voronoi cell associated with a delaney half-edge
-    /// let edge = 3;
-    /// for edges in VoronoiCellTriangleIterator::new(voronoi, edge {
-    ///     println!("Vertex: {}", voronoi.triangles[edge]);
-    /// }
-    /// ```
     fn build_voronoi_cell_index_buffer(&self) -> Vec<u32> {
-        let voronoi = self.voronoi;
-
         match self.topology {
-                PrimitiveTopology::LineList =>
-                    (0..voronoi.sites.len())
-                        .map(|s| {
-                            into_line_list(
-                                voronoi.cell_triangles[s]
-                                        .iter()
-                                        .map(|c| *c as u32)
-                            )
-                        })
-                        .flatten()
-                        .collect(),
-                PrimitiveTopology::TriangleList | PrimitiveTopology::PointList =>
-                    (0..voronoi.sites.len())
-                        .map(|s| voronoi.cell_triangles[s]
-                            .iter()
-                            .map(|c| *c as u32)
-                            .into_triangle_list())
-                        .flatten()
-                        .collect(),
-                _ =>
-                    panic!("Topology {:?} is not supported", self.topology),
+            PrimitiveTopology::LineList => {
+                match self.voronoi.hull_behavior {
+                    HullBehavior::Open => {
+                        // when hull is not closed, we cannot wrap line list or it will render extra edges
+                        let hull_verteces = self.voronoi.cells()
+                            .filter(|c| c.is_on_hull())
+                            .flat_map(|c| into_line_list(c.get_triangles()))
+                            .map(|i| i as u32);
+
+                        // for cells not on hull, they are always closed
+                        let mut verteces = self.voronoi.cells()
+                            .filter(|c| !c.is_on_hull())
+                            .flat_map(|c| into_line_list_wrap(c.get_triangles()))
+                            .map(|t| t as u32)
+                            .collect::<Vec<u32>>();
+
+                        verteces.extend(hull_verteces);
+                        verteces
+                    },
+
+                    HullBehavior::Closed => {
+                        // when hull is closed, all cells are closed
+                        self.voronoi.cells()
+                        .filter(|c| !c.is_on_hull())
+                        .flat_map(|c| into_line_list_wrap(c.get_triangles()))
+                        .map(|t| t as u32)
+                        .collect::<Vec<u32>>()
+                    }
+                }
+            },
+
+            PrimitiveTopology::PointList | PrimitiveTopology::TriangleList => {
+                // if cells on hull are not closed, they will not render correctly in this mode
+                self.voronoi.cells()
+                    .flat_map(|c| into_line_list(c.get_triangles()))
+                    .map(|t| t as u32)
+                    .into_triangle_list()
+                    .collect::<Vec<u32>>()
+            },
+
+            _ => panic!("Topology {:?} not supported", self.topology)
         }
     }
 }

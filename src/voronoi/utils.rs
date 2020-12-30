@@ -26,9 +26,15 @@ pub fn color_to_f32_vec(color: Color) -> [f32; 3] {
 /// assert_eq!(1, iter.next());
 /// assert_eq!(None, iter.next());
 ///```
-pub fn into_line_list<T>(iter: impl Iterator<Item = T> + Clone)-> impl Iterator<Item = T> {
+pub fn into_line_list_wrap<T>(iter: impl Iterator<Item = T> + Clone)-> impl Iterator<Item = T> {
     let c = iter.clone();
     iter.zip(c.cycle().skip(1))
+        .flat_map(|(a, b)| std::iter::once(a).chain(std::iter::once(b)))
+}
+
+pub fn into_line_list<T>(iter: impl Iterator<Item = T> + Clone)-> impl Iterator<Item = T> {
+    let c = iter.clone();
+    iter.zip(c.skip(1))
         .flat_map(|(a, b)| std::iter::once(a).chain(std::iter::once(b)))
 }
 

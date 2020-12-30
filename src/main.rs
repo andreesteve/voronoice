@@ -324,6 +324,7 @@ fn handle_input(
             HullBehavior::Open => HullBehavior::Closed,
             HullBehavior::Closed => HullBehavior::Open
         };
+        println!("Hull behavior set to {:?}", state.hull_behavior);
 
         let mut builder: VoronoiBuilder = state.voronoi.as_ref().unwrap().into();
         builder.set_hull_behavior(state.hull_behavior);

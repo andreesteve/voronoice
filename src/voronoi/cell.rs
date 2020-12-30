@@ -20,7 +20,7 @@ impl<'v> VoronoiCell<'v> {
     }
 
     /// Get the indices of the triangles of the dual Delauney triangulation that are associated with this Voronoi cell.
-    pub fn get_triangles(&self) -> impl Iterator<Item=usize> + 'v {
+    pub fn get_triangles(&self) -> impl Iterator<Item=usize> + 'v + Clone {
         self.voronoi.cell_triangles[self.site].iter().copied()
     }
 
@@ -60,3 +60,17 @@ impl<'v> fmt::Debug for  VoronoiCell<'v> {
             .finish()
     }
 }
+
+// #[derive(Debug, Clone, Copy)]
+// pub struct VoronoiCellIterator<'v> {
+//     iter:Iterator
+// }
+// impl<'v> Iterator for VoronoiCellIterator<'v> {
+// }
+// impl<'v> Iterator for VoronoiCellIterator<'v> {
+//     type Item = VoronoiCell<'v>;
+
+//     fn next(&mut self) -> Option<Self::Item> {
+
+//     }
+// }

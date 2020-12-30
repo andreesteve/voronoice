@@ -4,6 +4,7 @@ mod edges_around_site_iterator;
 mod voronoi_mesh_generator;
 mod cell;
 mod voronoi_builder;
+//mod into_line_list;
 
 use delaunator::{EMPTY, Triangulation, next_halfedge, triangulate};
 use self::edges_around_site_iterator::EdgesAroundSiteIterator;
@@ -418,6 +419,11 @@ impl Voronoi {
     /// Gets a representation of a voronoi cell based on its site index.
     pub fn get_cell(&self, site: usize) -> VoronoiCell {
         VoronoiCell::new(site, self)
+    }
+
+    pub fn cells<'v>(&'v self) -> impl Iterator<Item = VoronoiCell<'v>> + Clone {
+        (0..self.sites.len())
+            .map(move |s| self.get_cell(s))
     }
 
     // /// Returns the index to the site that half-edge `e` points to.
