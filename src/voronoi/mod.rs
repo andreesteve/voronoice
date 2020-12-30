@@ -63,7 +63,7 @@ pub struct Voronoi {
     circumcenters: Vec<Point>,
 
     /// A map of each site to its left-most incomig half-edge.
-    site_to_incoming: Vec<usize>,
+    site_to_incoming_leftmost_halfedge: Vec<usize>,
 
     /// A map for each voronoi cell and the associated delauney triangles whose centroids are the cell's vertices.
     /// For any site[s], the associated voronoi cell associated triangles are represented by cell_triangles[s].
@@ -249,7 +249,7 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
                 let target_point = &sites[site];
 
                 // the line extension must be perpendicular to the hull edge
-                // get edge direction, rotated by 90 degree clock-wise as to point towards the "outside"
+                // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
                 let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
 
                 // get voronoi vertex that needs to be extended and extend it
@@ -258,7 +258,9 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
 
                 // add extended vertex as a "fake" circumcenter
                 let vertex_index = circumcenters.len();
-                cell.push(vertex_index);
+                // this point is orthogonally extended towards the outside from the current cell[0], thus it needs to come in first
+                // be keep verteces in counterclockwise order
+                cell.insert(0, vertex_index);
                 circumcenters.push(projected);
             }
         }
@@ -366,11 +368,13 @@ fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex
 // For instances, diag.triangles.len() is the number of starting edges and triangles in the triangulation, you can think of diag.triangles[e] as 'e' as being both the index of the
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
-    pub fn new(sites: Vec<Point>, hull_behavior: HullBehavior, bounding_box: Point) -> Self {
+    pub fn new(sites: Vec<Point>, hull_behavior: HullBehavior, bounding_box: Point) -> Option<Self> {
         // remove any points not within bounding box
         let sites = sites.into_iter().filter(|p| is_in_box(p, &bounding_box)).collect::<Vec<Point>>();
 
-        let triangulation = triangulate(&sites).expect("Expected tris");
+        let triangulation = triangulate(&sites)?;
+
+
         let num_of_triangles = triangulation.triangles.len() / 3;
         let num_of_sites = sites.len();
 
@@ -404,16 +408,16 @@ impl Voronoi {
 
         let cell_triangles = calculate_cell_triangles(hull_behavior, &sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites, &bounding_box);
 
-        Voronoi {
+        Some(Voronoi {
             bounding_box,
             circumcenters,
-            site_to_incoming: site_to_halfedge,
+            site_to_incoming_leftmost_halfedge: site_to_halfedge,
             triangulation,
             num_of_triangles,
             cell_triangles,
             sites,
             hull_behavior
-        }
+        })
     }
 
     /// Returns an iterator that walks through each vertex of a voronoi cell in counter-clockwise manner.

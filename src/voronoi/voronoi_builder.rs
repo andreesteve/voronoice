@@ -30,7 +30,7 @@ impl VoronoiBuilder {
         self
     }
 
-    pub fn build(mut self) -> Voronoi {
+    pub fn build(mut self) -> Option<Voronoi> {
         let v = Voronoi::new(
             self.sites.take().expect("Cannot build voronoi without sites. Call set_sites() first."),
             self.hull_behavior,
@@ -40,17 +40,21 @@ impl VoronoiBuilder {
         self.perform_lloyd_relaxation(v)
     }
 
-    fn perform_lloyd_relaxation(&mut self, mut v: Voronoi) -> Voronoi {
+    fn perform_lloyd_relaxation(&mut self, mut v: Option<Voronoi>) -> Option<Voronoi> {
         for _ in 0..self.lloyd_iterations {
-            // get verteces for each cell and approximate centroid
-            let new_sites = (0..v.sites.len())
-                .map(|c| calculate_approximated_cetroid(v.get_cell_verteces(c)))
-                .collect::<Vec<Point>>();
+            if let Some(voronoi) = v {
+                // get verteces for each cell and approximate centroid
+                let new_sites = (0..voronoi.sites.len())
+                    .map(|c| calculate_approximated_cetroid(voronoi.get_cell_verteces(c)))
+                    .collect::<Vec<Point>>();
 
-            // recompute new voronoi with sites after relaxation
-            let mut builder = Self::create_builder_from_voronoi_without_sites(&v);
-            builder.set_sites(new_sites);
-            v = builder.build();
+                // recompute new voronoi with sites after relaxation
+                let mut builder = Self::create_builder_from_voronoi_without_sites(&voronoi);
+                builder.set_sites(new_sites);
+                v = builder.build();
+            } else {
+                break;
+            }
         }
 
         v

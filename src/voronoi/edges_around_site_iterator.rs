@@ -25,7 +25,7 @@ pub struct EdgesAroundSiteIterator<'t> {
 impl<'t> EdgesAroundSiteIterator<'t> {
     #[allow(dead_code)]
     pub fn for_site(voronoi: &'t Voronoi, site: usize) -> Self {
-        EdgesAroundSiteIterator::new(&voronoi.triangulation, voronoi.site_to_incoming[site])
+        EdgesAroundSiteIterator::new(&voronoi.triangulation, voronoi.site_to_incoming_leftmost_halfedge[site])
     }
 
     /// Creates iterator based on a incoming edge to a site.

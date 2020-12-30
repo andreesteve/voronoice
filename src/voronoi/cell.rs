@@ -34,10 +34,18 @@ impl<'v> VoronoiCell<'v> {
 impl<'v> fmt::Debug for  VoronoiCell<'v> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[derive(Debug)]
+        struct Edge {
+            edge: usize,
+            incoming_site: usize,
+            outgoing_site: usize
+        }
+
+        #[derive(Debug)]
         struct Site {
             site: usize,
             position: Point,
-            is_on_hull: bool
+            is_on_hull: bool,
+            leftmost_incoming_edge: Edge
         }
 
         #[derive(Debug)]
@@ -46,12 +54,18 @@ impl<'v> fmt::Debug for  VoronoiCell<'v> {
             triangles: Vec<usize>,
             positions: Vec<Point>
         }
+        let leftmost_edge = self.voronoi.site_to_incoming_leftmost_halfedge[self.site];
 
         f.debug_struct("VoronoiCell")
             .field("site", &Site {
                 site: self.site,
                 position: self.get_site_position().clone(),
-                is_on_hull: self.is_on_hull()
+                is_on_hull: self.is_on_hull(),
+                leftmost_incoming_edge: Edge {
+                    edge: leftmost_edge,
+                    incoming_site: self.site,
+                    outgoing_site: self.voronoi.triangulation.triangles[leftmost_edge]
+                }
             })
             .field("verteces", &CellVerteces {
                 triangles: self.get_triangles().collect(),

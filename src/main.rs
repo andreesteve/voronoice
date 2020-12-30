@@ -1,6 +1,6 @@
 use std::{collections::LinkedList, time::Instant};
 
-use bevy::{prelude::*, render::{camera::{Camera, PerspectiveProjection}, pipeline::PrimitiveTopology}};
+use bevy::{prelude::*, render::{camera::{Camera, PerspectiveProjection}, mesh::Indices, pipeline::PrimitiveTopology}};
 
 mod pipeline;
 mod voronoi;
@@ -96,12 +96,15 @@ fn add_display_lines(commands: &mut ChildBuilder, font: &Handle<Font>) {
     .with(StatusDisplay);
 }
 
+struct BoundingBox;
+
 // right hand
 // triangulation anti-clockwise
 fn setup(
     commands: &mut Commands,
     asset_server: Res<AssetServer>,
-    mut materials: ResMut<Assets<ColorMaterial>>
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let camera_pos = Vec3::new(0.000001, CAMERA_Y, 0.0);
     let mut camera_t = Transform::from_translation(camera_pos)
@@ -120,6 +123,9 @@ fn setup(
         material: materials.add(Color::NONE.into()),
         ..Default::default()
     }).with_children(|parent| {
+        add_display_lines(parent, &font_handle);
+        add_display_lines(parent, &font_handle);
+        add_display_lines(parent, &font_handle);
         add_display_lines(parent, &font_handle);
         add_display_lines(parent, &font_handle);
         add_display_lines(parent, &font_handle);
@@ -149,7 +155,29 @@ fn setup(
             },
             ..Default::default()
         })
-        .with(Mouse::default());
+        .with(Mouse::default())
+        .spawn(PbrBundle {
+            mesh: meshes.add(get_bounding_box(1.0)),
+            ..Default::default()
+        })
+        .with(BoundingBox);
+}
+
+fn get_bounding_box(size: f32) -> Mesh {
+    let pos = vec![
+        [-size, 0.0, -size], // bottom left
+        [-size, 0.0, size], // bottom right
+        [size, 0.0, size], // top right
+        [size, 0.0, -size], // top left
+    ];
+
+    let mut m = Mesh::new(PrimitiveTopology::LineStrip);
+    m.set_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; pos.len()]);
+    m.set_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0, 0.0]; pos.len()]);
+    m.set_attribute(Mesh::ATTRIBUTE_POSITION, pos);
+    m.set_indices(Some(Indices::U32(vec![0, 1, 2, 3, 0])));
+
+    m
 }
 
 fn get_closest_site(voronoi: &Voronoi, pos: Vec3) -> Option<(usize, f32)> {
@@ -208,6 +236,20 @@ fn move_camera(input: Res<Input<KeyCode>>, mut camera_query: Query<&mut Transfor
     }
 }
 
+#[derive(Debug)]
+enum SiteType {
+    Case1,
+    Case2,
+    Random,
+    Circle,
+    Triangle,
+    Square
+}
+impl Default for SiteType {
+    fn default() -> Self {
+        SiteType::Case2
+    }
+}
 #[derive(Default)]
 struct State {
     voronoi_opts: VoronoiMeshOptions,
@@ -217,10 +259,17 @@ struct State {
     forward_list: LinkedList<Voronoi>,
     hull_behavior: HullBehavior,
     bounding_box: f64,
+    site_type: SiteType,
 }
 impl State {
-    fn replace(&mut self, v: Voronoi) -> Option<&Voronoi> {
-        if let Some(old) = self.voronoi.replace(v) {
+    fn replace(&mut self, v: Option<Voronoi>) -> Option<&Voronoi> {
+        let old = if let Some(new) = v  {
+            self.voronoi.replace(new)
+        } else {
+            self.voronoi.take()
+        };
+
+        if let Some(old) = old {
             self.undo_list.push_front(old);
 
             self.undo_list.front()
@@ -280,7 +329,17 @@ impl State {
         //builder.generate_square_sites(2, 2);
         //builder.generate_triangle_sites();
         let mut builder = self.new_builder();
-        builder.generate_special_case_2();
+        let range = (-self.bounding_box / 2.0, self.bounding_box / 2.0);
+
+        match self.site_type {
+            SiteType::Random => builder.generate_random_sites(self.size, range, range),
+            SiteType::Circle => builder.generate_circle_sites(self.size),
+            SiteType::Case1 =>builder.generate_special_case_1(),
+            SiteType::Case2 =>builder.generate_special_case_2(),
+            SiteType::Triangle =>builder.generate_triangle_sites(),
+            SiteType::Square => builder.generate_square_sites(self.size, self.size),
+        };
+
         let voronoi = builder.build();
         println!("Generated new voronoi of size {} in {:?}", self.size, start.elapsed());
 
@@ -314,12 +373,13 @@ fn handle_input(
     commands: &mut Commands,
     query: Query<Entity, With<VertexColor>>,
     mut query_text: Query<&mut Text, With<StatusDisplay>>,
+    mut query_box: Query<&mut Transform, With<BoundingBox>>,
     mouse_query: Query<&Mouse>) {
 
     let mut respawn = false;
 
     // no voronoi, generate random one
-    if !state.voronoi.is_some() {
+    if !state.voronoi.is_some() && state.undo_list.is_empty() {
         respawn = true;
         state.bounding_box = 1.0;
         state.new_voronoi(20);
@@ -329,13 +389,19 @@ fn handle_input(
         if input.just_pressed(KeyCode::PageUp) {
             state.bounding_box += 0.1;
         } else if input.just_pressed(KeyCode::PageDown) {
-            state.bounding_box -= 0.1;
+            state.bounding_box = (state.bounding_box - 0.1).max(0.1);
         }
 
         respawn = true;
-        let mut builder : VoronoiBuilder = state.voronoi.as_ref().unwrap().into();
-        builder.set_bounding_box(Point { x: state.bounding_box, y: state.bounding_box });
-        state.replace(builder.build());
+        if let Some(v) = state.voronoi.as_ref() {
+            let mut builder : VoronoiBuilder = v.into();
+            builder.set_bounding_box(Point { x: state.bounding_box, y: state.bounding_box });
+            state.replace(builder.build());
+        }
+
+        for mut box_t in query_box.iter_mut() {
+            box_t.scale = Vec3::splat(state.bounding_box as f32);
+        }
     }
 
     // span new voronoi with new rendering but same points
@@ -358,12 +424,13 @@ fn handle_input(
 
         respawn = true;
     } else if input.just_pressed(KeyCode::L) {
-        // run loyd relaxation
-        let existing_voronoi = state.voronoi.as_ref().unwrap();
-        let mut builder: VoronoiBuilder = existing_voronoi.into();
-        builder.set_lloyd_relaxation_iterations(1);
-        state.replace(builder.build());
-        respawn = true;
+            // run loyd relaxation
+            if let Some(existing_voronoi) = state.voronoi.as_ref() {
+            let mut builder: VoronoiBuilder = existing_voronoi.into();
+            builder.set_lloyd_relaxation_iterations(1);
+            state.replace(builder.build());
+            respawn = true;
+        }
     } else if input.just_pressed(KeyCode::H) {
         // change hull behavior
         state.hull_behavior = match state.hull_behavior {
@@ -373,10 +440,12 @@ fn handle_input(
         };
         println!("Hull behavior set to {:?}", state.hull_behavior);
 
-        let mut builder: VoronoiBuilder = state.voronoi.as_ref().unwrap().into();
-        builder.set_hull_behavior(state.hull_behavior);
-        state.replace(builder.build());
-        respawn = true;
+        if let Some(existing_voronoi) = state.voronoi.as_ref() {
+            let mut builder: VoronoiBuilder = existing_voronoi.into();
+            builder.set_hull_behavior(state.hull_behavior);
+            state.replace(builder.build());
+            respawn = true;
+        }
     }
 
     let mouse = mouse_query.iter().next().unwrap();
@@ -384,7 +453,12 @@ fn handle_input(
         // take sites and change based on type of click
         let point = voronoi::Point { x: mouse.world_pos.z as f64, y: mouse.world_pos.x  as f64 };
 
-        let closest_site = get_closest_site(state.voronoi.as_ref().unwrap(), mouse.world_pos);
+        let (closest_site, num_of_sites) = if let Some(voronoi) = state.voronoi.as_ref() {
+            (get_closest_site(voronoi, mouse.world_pos), voronoi.sites.len())
+        } else {
+            (None, 0)
+        };
+
         if mouse_button_input.just_pressed(MouseButton::Left) {
             // do not let adding points extremelly close as this degenerate triangulation
             if closest_site.is_none() || closest_site.unwrap().1 > 0.001 {
@@ -392,7 +466,7 @@ fn handle_input(
                 info!("Site added: {:?}", mouse.world_pos);
                 respawn = true;
             }
-        } else if mouse_button_input.just_pressed(MouseButton::Right) && state.voronoi.as_ref().unwrap().sites.len() > 3 { // don't let it go below 3 as it won't triangulate
+        } else if mouse_button_input.just_pressed(MouseButton::Right) && num_of_sites > 3 { // don't let it go below 3 as it won't triangulate
             // if right click, get closest point and remove it
             if let Some((i, dist)) = closest_site {
                 if dist < 0.2 {
@@ -405,8 +479,12 @@ fn handle_input(
             // print info for closest site
             if let Some((site, dist)) = closest_site {
                 if dist < 0.2 {
-                    let cell = state.voronoi.as_ref().unwrap().get_cell(site);
-                    println!("{:#?}", cell);
+                    if let Some(v) = state.voronoi.as_ref() {
+                        let cell = v.get_cell(site);
+                        println!("{:#?}", cell);
+                    } else {
+                        println!("No voronoi");
+                    }
                 }
             }
         }
@@ -414,18 +492,24 @@ fn handle_input(
 
     // change number of points
     let size = state.size;
+    let change = if input.pressed(KeyCode::LShift) { 1000 } else { 100 };
     if input.just_pressed(KeyCode::Up) {
         respawn = true;
-        state.new_voronoi(size + 100);
+        state.new_voronoi(size + change);
     } else if input.just_pressed(KeyCode::Down) {
         respawn = true;
-        state.new_voronoi(size.max(120) - 100);
-    } else if input.just_pressed(KeyCode::PageUp) {
+        state.new_voronoi((size as i64 - change as i64).max(120) as usize);
+    } else if input.just_pressed(KeyCode::Home) {
+        state.site_type = match state.site_type {
+            SiteType::Circle => SiteType::Random,
+            SiteType::Random => SiteType::Square,
+            SiteType::Square => SiteType::Triangle,
+            SiteType::Triangle => SiteType::Case1,
+            SiteType::Case1 => SiteType::Case2,
+            SiteType::Case2 => SiteType::Circle,
+        };
         respawn = true;
-        state.new_voronoi(size + 1000);
-    } else if input.just_pressed(KeyCode::PageDown) {
-        respawn = true;
-        state.new_voronoi(size.max(1020) - 1000);
+        state.new_voronoi(size);
     }
 
     if input.pressed(KeyCode::LControl) {
@@ -462,10 +546,12 @@ fn handle_input(
         println!("{:#?}", state.voronoi);
     }
 
-    let updates: [String; 3] = [
-        format!("[H:] Hull mode: {:?}", state.hull_behavior),
-        format!("[P:] Voronoi mesh render mode: {:?}", state.voronoi_opts.voronoi_topoloy),
-        format!("[PgUp/PgDown:] Bounding box: {:.2}", state.bounding_box),
+    let updates: [String; 5] = [
+        format!("[H] Hull mode: {:?}", state.hull_behavior),
+        format!("[P] Voronoi mesh render mode: {:?}", state.voronoi_opts.voronoi_topoloy),
+        format!("[PgUp/PgDown] Bounding box: {:.2}", state.bounding_box),
+        format!("[Home] Site type: {:?}", state.site_type),
+        format!("# of Sites: {}", state.voronoi.as_ref().map_or(0, |v| v.sites.len())),
     ];
 
     for (mut text, update) in query_text.iter_mut().zip(&updates) {
