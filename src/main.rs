@@ -216,8 +216,8 @@ struct State {
     undo_list: LinkedList<Voronoi>,
     forward_list: LinkedList<Voronoi>,
     hull_behavior: HullBehavior,
+    bounding_box: f64,
 }
-
 impl State {
     fn replace(&mut self, v: Voronoi) -> Option<&Voronoi> {
         if let Some(old) = self.voronoi.replace(v) {
@@ -259,12 +259,14 @@ impl State {
         self.voronoi.take();
         self.undo_list.clear();
         self.forward_list.clear();
+        self.bounding_box = 1.0;
     }
 
     fn new_builder(&self) -> VoronoiBuilder {
         let mut builder = VoronoiBuilder::default();
         builder
-            .set_hull_behavior(self.hull_behavior);
+            .set_hull_behavior(self.hull_behavior)
+            .set_bounding_box(Point { x: self.bounding_box, y: self.bounding_box });
 
         builder
     }
@@ -319,7 +321,21 @@ fn handle_input(
     // no voronoi, generate random one
     if !state.voronoi.is_some() {
         respawn = true;
+        state.bounding_box = 1.0;
         state.new_voronoi(20);
+    }
+
+    if input.just_pressed(KeyCode::PageUp) || input.just_pressed(KeyCode::PageDown) {
+        if input.just_pressed(KeyCode::PageUp) {
+            state.bounding_box += 0.1;
+        } else if input.just_pressed(KeyCode::PageDown) {
+            state.bounding_box -= 0.1;
+        }
+
+        respawn = true;
+        let mut builder : VoronoiBuilder = state.voronoi.as_ref().unwrap().into();
+        builder.set_bounding_box(Point { x: state.bounding_box, y: state.bounding_box });
+        state.replace(builder.build());
     }
 
     // span new voronoi with new rendering but same points
@@ -446,9 +462,10 @@ fn handle_input(
         println!("{:#?}", state.voronoi);
     }
 
-    let updates: [String; 2] = [
-        format!("Hull mode: {:?}", state.hull_behavior),
-        format!("Voronoi mesh render mode: {:?}", state.voronoi_opts.voronoi_topoloy),
+    let updates: [String; 3] = [
+        format!("[H:] Hull mode: {:?}", state.hull_behavior),
+        format!("[P:] Voronoi mesh render mode: {:?}", state.voronoi_opts.voronoi_topoloy),
+        format!("[PgUp/PgDown:] Bounding box: {:.2}", state.bounding_box),
     ];
 
     for (mut text, update) in query_text.iter_mut().zip(&updates) {

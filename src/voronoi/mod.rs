@@ -44,6 +44,7 @@ pub struct Voronoi {
     /// These are the sites of each voronoi cell.
     pub sites: Vec<Point>,
 
+    bounding_box: Point,
     num_of_triangles: usize,
     triangulation: Triangulation,
     hull_behavior: HullBehavior,
@@ -365,9 +366,7 @@ fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex
 // For instances, diag.triangles.len() is the number of starting edges and triangles in the triangulation, you can think of diag.triangles[e] as 'e' as being both the index of the
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
-    pub fn new(sites: Vec<Point>, hull_behavior: HullBehavior) -> Self {
-        let bounding_box = Point { x: 1.0, y: 1.0 };
-
+    pub fn new(sites: Vec<Point>, hull_behavior: HullBehavior, bounding_box: Point) -> Self {
         // remove any points not within bounding box
         let sites = sites.into_iter().filter(|p| is_in_box(p, &bounding_box)).collect::<Vec<Point>>();
 
@@ -406,6 +405,7 @@ impl Voronoi {
         let cell_triangles = calculate_cell_triangles(hull_behavior, &sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites, &bounding_box);
 
         Voronoi {
+            bounding_box,
             circumcenters,
             site_to_incoming: site_to_halfedge,
             triangulation,

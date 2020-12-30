@@ -5,12 +5,18 @@ use super::utils::calculate_approximated_cetroid;
 pub struct VoronoiBuilder {
     sites: Option<Vec<Point>>,
     hull_behavior: HullBehavior,
-    lloyd_iterations: usize
+    lloyd_iterations: usize,
+    bounding_box: Option<Point>
 }
 
 impl VoronoiBuilder {
     pub fn set_hull_behavior(&mut self, behavior: HullBehavior) -> &mut Self {
         self.hull_behavior = behavior;
+        self
+    }
+
+    pub fn set_bounding_box(&mut self, bounding_box: Point) -> &mut Self {
+        self.bounding_box.replace(bounding_box);
         self
     }
 
@@ -27,7 +33,8 @@ impl VoronoiBuilder {
     pub fn build(mut self) -> Voronoi {
         let v = Voronoi::new(
             self.sites.take().expect("Cannot build voronoi without sites. Call set_sites() first."),
-            self.hull_behavior
+            self.hull_behavior,
+            self.bounding_box.take().unwrap_or(Point { x: 1.0, y: 0.0 })
         );
 
         self.perform_lloyd_relaxation(v)
@@ -145,6 +152,7 @@ impl VoronoiBuilder {
     fn create_builder_from_voronoi_without_sites(v: &Voronoi) -> Self {
         Self {
             hull_behavior: v.hull_behavior,
+            bounding_box: Some(v.bounding_box.clone()),
             ..Default::default()
         }
     }
