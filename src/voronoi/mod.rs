@@ -7,6 +7,8 @@ mod voronoi_builder;
 mod bounding_box;
 //mod into_line_list;
 
+use std::iter::once;
+
 use delaunator::{EMPTY, Triangulation, next_halfedge, triangulate};
 use self::edges_around_site_iterator::EdgesAroundSiteIterator;
 use self::cell::VoronoiCell;
@@ -193,50 +195,62 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
             // thus get the one
             let leftmost_edge = site_to_leftmost_halfedge[site];
 
-            // EdgesAroundSiteIterator::new(&triangulation, leftmost_edge).for_each(|e| {
-            //     println!("  Incoming edge {} from site {} {:?}", e, triangulation.triangles[e], sites[triangulation.triangles[e]])
-            // });
-
             let cell = &mut cells[site];
             cell.extend(
                 EdgesAroundSiteIterator::new(&triangulation, leftmost_edge)
                         .map(|e| utils::triangle_of_edge(e))
             );
 
-            // project edges
-            // FIXME: what to do if cell length is == 1? will it be a problem for closing the hull?
-            if cell.len() > 1 {
-                let mut prev_vertex = &circumcenters[*cell.first().unwrap()];
-                // iterate starting on second element, first element needs to be handled separately
-                // for each edge walk it and return the points themselves if they are within the box
-                // or return their projection onto the box edges otherwise
-                for i in 1..cell.len() {
-                    let t = cell[i];
-                    let vertex = &circumcenters[t];
+            // clip cell edges
+            let mut previous = None;
+            let new_cell = cell.iter().zip(cell.iter().skip(1)).flat_map(|(a, b)| {
+                let pa = &circumcenters[*a];
+                let pb = &circumcenters[*b];
 
-                    // if vertex is not inside bounding box, then we need to project it in
-                    // along the edge with the previous vertex
-                    if !bounding_box.is_inside(&vertex) {
-                        let direction = Point { x: vertex.x - prev_vertex.x, y: vertex.y - prev_vertex.y };
+                //let mut iter = Box::new(empty()) as Box<dyn Iterator<Item = usize>>;
+                let mut new_a = *a;
+                let mut new_b = *b;
 
-                        // TODO what happens when the line segment intersects two edges of the box, which one this returns?
-                        let projected = bounding_box.project_ray_closest(&prev_vertex, &direction).expect("Expected intersection with box");
+                // if edge crosses box, then clip it
+                if !bounding_box.is_inside(pa) || !bounding_box.is_inside(pb) {
+                    let direction = Point { x: pb.x - pa.x, y: pb.y - pa.y };
+                    let (clip_a, clip_b) = bounding_box.project_ray(pa, &direction);
 
-                        // add it as a fake circumcenter so it can still be indexes as other verteces
-                        let vertex_index = circumcenters.len();
-                        circumcenters.push(projected);
-
-                        // update current cell value to use new point
-                        cell[i] = vertex_index;
-                        // TODO does this assume the cell is closed??
+                    // if a was outside the box, use clipped value
+                    if let Some(clip_a) = clip_a {
+                        // track new index for the starting vertex
+                        new_a = circumcenters.len();
+                        circumcenters.push(clip_a);
                     }
 
-                    prev_vertex = &circumcenters[t];
+                    // same for b
+                    if let Some(clip_b) = clip_b {
+                        // track new index for the starting vertex
+                        new_b = circumcenters.len();
+                        circumcenters.push(clip_b);
+                    }
                 }
 
-                // TODO handle first element
-                //
-            }
+                once(new_a).chain(once(new_b))
+            }).filter_map(|a| {
+                let prev = previous;
+                previous = Some(a);
+
+                // remove the start edge vertex if it matches the end vertex from previous edge
+                if let Some(prev) = prev {
+                    if prev == a {
+                        // vertex did not change
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    Some(a)
+                }
+            })
+            .collect::<Vec<usize>>();
+
+            *cell = new_cell;
 
             // if there is no half-edge associated with the left-most edge, the edge is on the hull
             // thus this cell will not "close" and it needs to be extended and clipped
@@ -245,7 +259,7 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
                 let cell_vertex_to_extend = &circumcenters[cell[0]];
 
                 // if vertex is outside bounding box, no need to extend it
-                if bounding_box.is_inside(cell_vertex_to_extend) {
+                if !bounding_box.is_inside(cell_vertex_to_extend) {
                     // get the point that the edge comes from
                     let source_site = triangulation.triangles[leftmost_edge];
                     let source_point = &sites[source_site];
