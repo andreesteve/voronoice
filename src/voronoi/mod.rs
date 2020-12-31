@@ -129,11 +129,6 @@ fn site_of_incoming(triangulation: &Triangulation, e: usize) -> usize {
 //     p
 // }
 
-// fn project_ray_on_bounding_box(source: &Point, target: &Point, bounding_box: &Point) -> Point {
-//     let direction = Point { x: target.x - source.x, y: target.y - source.y };
-//     //project_point_on_bounding_box()
-// }
-
 fn close_hull(cells: &mut Vec<Vec<usize>>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, bounding_box: &BoundingBox) {
     // perform clock-wise walk on the sites on the hull
     let hull = &triangulation.hull;
@@ -208,6 +203,41 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
                         .map(|e| utils::triangle_of_edge(e))
             );
 
+            // project edges
+            // FIXME: what to do if cell length is == 1? will it be a problem for closing the hull?
+            if cell.len() > 1 {
+                let mut prev_vertex = &circumcenters[*cell.first().unwrap()];
+                // iterate starting on second element, first element needs to be handled separately
+                // for each edge walk it and return the points themselves if they are within the box
+                // or return their projection onto the box edges otherwise
+                for i in 1..cell.len() {
+                    let t = cell[i];
+                    let vertex = &circumcenters[t];
+
+                    // if vertex is not inside bounding box, then we need to project it in
+                    // along the edge with the previous vertex
+                    if !bounding_box.is_inside(&vertex) {
+                        let direction = Point { x: vertex.x - prev_vertex.x, y: vertex.y - prev_vertex.y };
+
+                        // TODO what happens when the line segment intersects two edges of the box, which one this returns?
+                        let projected = bounding_box.project_ray_closest(&prev_vertex, &direction).expect("Expected intersection with box");
+
+                        // add it as a fake circumcenter so it can still be indexes as other verteces
+                        let vertex_index = circumcenters.len();
+                        circumcenters.push(projected);
+
+                        // update current cell value to use new point
+                        cell[i] = vertex_index;
+                        // TODO does this assume the cell is closed??
+                    }
+
+                    prev_vertex = &circumcenters[t];
+                }
+
+                // TODO handle first element
+                //
+            }
+
             // if there is no half-edge associated with the left-most edge, the edge is on the hull
             // thus this cell will not "close" and it needs to be extended and clipped
             if triangulation.halfedges[leftmost_edge] == EMPTY && (hull_behavior == HullBehavior::Extended || hull_behavior == HullBehavior::Closed)  {
@@ -226,7 +256,7 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
                     let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
 
                     // get voronoi vertex that needs to be extended and extend it
-                    let projected = bounding_box.project_vector(cell_vertex_to_extend, &orthogonal);
+                    let projected = bounding_box.project_ray_closest(cell_vertex_to_extend, &orthogonal).expect("Expected intersection with box");
 
                     // add extended vertex as a "fake" circumcenter
                     let vertex_index = circumcenters.len();
