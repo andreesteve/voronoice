@@ -380,6 +380,7 @@ fn handle_input(
     // no voronoi, generate random one
     if !state.voronoi.is_some() && state.undo_list.is_empty() {
         respawn = true;
+        state.hull_behavior = HullBehavior::None;
         state.bounding_box = BoundingBox::new_centered_square(2.0);
         state.new_voronoi(20);
     }

@@ -54,6 +54,12 @@ impl BoundingBox {
         point.x.abs() <= self.top_right.x && point.y.abs() <= self.top_right.y
     }
 
+    /// Same as inside, but return false if point is on the box edge.
+    #[inline]
+    pub fn is_exclusively_inside(&self, point: &Point) -> bool {
+        point.x.abs() < self.top_right.x && point.y.abs() < self.top_right.y
+    }
+
     /// Intersects a line represented by points 'a' and 'b' and returns the two intersecting points with the box, or None
     pub fn intersect_line(&self, a: &Point, b: &Point) -> (Option<Point>, Option<Point>) {
         let c_x = b.x - a.x;
