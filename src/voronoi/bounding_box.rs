@@ -156,58 +156,62 @@ impl BoundingBox {
     /// Intersects a ray with the bounding box. The first intersection is returned first.
     pub fn project_ray(&self, point: &Point, direction: &Point) -> (Option<Point>, Option<Point>) {
         let b = Point { x: point.x + direction.x, y: point.y + direction.y };
-
         let (a, b) = self.intersect_line(point, &b);
-
-        if let Some(va) = a {
-            if let Some(vb) = b {
-                // point, a and b are just an scalar times direction, so we can compare any non-zero
-                // direction component, use the largest
-                let (d, da, db) = if direction.x.abs() > direction.y.abs() {
-                    // use x for comparison
-                    (direction.x, va.x - point.x, vb.x - point.x)
-                } else {
-                    (direction.y, va.y - point.y, vb.y - point.y)
-                };
-
-                if d.signum() == da.signum() {
-                    // a is reacheable
-                    if d.signum() == db.signum() {
-                        // b is reacheable
-                        if da.abs() > db.abs() {
-                            // b is closer
-                            (Some(vb), Some(va))
-                        } else {
-                            // a is closer
-                            (Some(va), Some(vb))
-                        }
-                    } else {
-                        // b will never be reached
-                        (Some(va), None)
-                    }
-                } else if d.signum() == db.signum() {
-                    // a will never be reached
-                    (Some(vb), None)
-                } else {
-                    // neither will be reached
-                    (None, None)
-                }
-            } else if direction.x.signum() == va.x.signum() && direction.y.signum() == va.y.signum() {
-                // a is in the right direction
-                (Some(va), None)
-            } else {
-                // a can't be reached
-                (None, None)
-            }
-        } else {
-            // no intersection
-            (None, None)
-        }
+        order_points_on_ray(point, direction, a, b)
     }
 
     /// Same as `project_ray` when you don't care abount the second intersecting point.
     pub fn project_ray_closest(&self, point: &Point, direction: &Point) -> Option<Point> {
         self.project_ray(point, direction).0
+    }
+}
+
+/// Given a ray defined by `point` and `direction, and two points on such ray `a` and `b`, returns a tuple (w, z) where point <= w <= z.
+/// If either `a` or `b` are smaller than `point`, None is returned.
+pub fn order_points_on_ray(point: &Point, direction: &Point, a: Option<Point>, b: Option<Point>) -> (Option<Point>, Option<Point>) {
+    if let Some(va) = a {
+        if let Some(vb) = b {
+            // point, a and b are just an scalar times direction, so we can compare any non-zero
+            // direction component, use the largest
+            let (d, da, db) = if direction.x.abs() > direction.y.abs() {
+                // use x for comparison
+                (direction.x, va.x - point.x, vb.x - point.x)
+            } else {
+                (direction.y, va.y - point.y, vb.y - point.y)
+            };
+
+            if d.signum() == da.signum() {
+                // a is reacheable
+                if d.signum() == db.signum() {
+                    // b is reacheable
+                    if da.abs() > db.abs() {
+                        // b is closer
+                        (Some(vb), Some(va))
+                    } else {
+                        // a is closer
+                        (Some(va), Some(vb))
+                    }
+                } else {
+                    // b will never be reached
+                    (Some(va), None)
+                }
+            } else if d.signum() == db.signum() {
+                // a will never be reached
+                (Some(vb), None)
+            } else {
+                // neither will be reached
+                (None, None)
+            }
+        } else if direction.x.signum() == va.x.signum() && direction.y.signum() == va.y.signum() {
+            // a is in the right direction
+            (Some(va), None)
+        } else {
+            // a can't be reached
+            (None, None)
+        }
+    } else {
+        // no intersection
+        (None, None)
     }
 }
 
