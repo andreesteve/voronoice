@@ -122,7 +122,7 @@ fn close_hull(cells: &mut Vec<Vec<usize>>, circumcenters: &mut Vec<Point>, trian
         // keep track of current extension vertex
         let curr_exteded_vertex = *cell.last().unwrap();
 
-        close_cell(cell, circumcenters, prev_exteded_vertex, curr_exteded_vertex, bounding_box);
+        //close_cell(cell, circumcenters, prev_exteded_vertex, curr_exteded_vertex, bounding_box);
 
         // let mine = &circumcenters[curr_exteded_vertex];
         // let prev = &circumcenters[prev_exteded_vertex];
@@ -147,13 +147,18 @@ fn close_hull(cells: &mut Vec<Vec<usize>>, circumcenters: &mut Vec<Point>, trian
     }
 
     let first_cell = &mut cells[first_cell_index];
-    close_cell(first_cell, circumcenters, prev_exteded_vertex, first_vertex, bounding_box);
+    //close_cell(first_cell, circumcenters, prev_exteded_vertex, first_vertex, bounding_box);
 }
 
 /// Calculate the triangles associated with each voronoi cell
 fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, circumcenters: &mut Vec<Point>, triangulation: &Triangulation, site_to_leftmost_halfedge: &Vec<usize>, num_of_sites: usize, bounding_box: &BoundingBox) -> Vec<Vec<usize>> {
     let mut seen_sites = vec![false; num_of_sites];
     let mut cells = vec![Vec::new(); num_of_sites];
+
+    // let cell_builder = CellBuilder {
+    //     vertices: circumcenters,
+    //     bounding_box: bounding_box.clone()
+    // };
 
     for edge in 0..triangulation.triangles.len() {
         // triangle[edge] is the site 'edge' originates from, but EdgesAroundPointIterator
@@ -180,10 +185,7 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
                         .map(|e| utils::triangle_of_edge(e))
             );
 
-            // clip cell edges
-            let (new_cell, _) = clip_cell(cell, circumcenters, bounding_box, !is_hull_site);
-            *cell = new_cell;
-
+            // FIXME: there are two extensions per site, I am doing just one here
             // cells on the hull need to have its edges extended to the edges of the box
             if is_hull_site && !cell.is_empty() && (hull_behavior == HullBehavior::Extended || hull_behavior == HullBehavior::Closed)  {
                 // during clipping, cells are shifted to the left, with previously first entry becoming last
@@ -192,7 +194,8 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
                 // this is the vertex we will extend from
                 let cell_vertex_to_extend = &circumcenters[cell[index_of_cell_to_extend]];
 
-                // if vertex is outside bounding box or on the edge, no need to extend it
+                // FIX ME: if the circumcenter is outside the box, the extension needs to be projected onto the far side
+                // if vertex is outside bounding box or on the box's edge, no need to extend it
                 if bounding_box.is_exclusively_inside(cell_vertex_to_extend) {
                     // get the point that the edge comes from
                     let source_site = triangulation.triangles[leftmost_edge];
@@ -215,7 +218,9 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
                 }
             }
 
-
+            // clip cell edges
+            // let (new_cell, _) = clip_cell(cell, circumcenters, bounding_box, !is_hull_site);
+            // *cell = new_cell;
         }
     }
 
@@ -252,76 +257,6 @@ fn calculate_circumcenters(sites: &Vec<Point>, triangulation: &Triangulation) ->
             c
     })
     .collect()
-}
-
-fn close_cell(cell: &mut Vec<usize>, circumcenters: &mut Vec<Point>, prev_vertex: usize, curr_vertex: usize, bounding_box: &BoundingBox) {
-    let mine = circumcenters[curr_vertex].clone();
-    let prev = circumcenters[prev_vertex].clone();
-
-    // FIXME: use same points for corners
-    // let top_right = Point { x: bounding_box.x, y: bounding_box.y };
-    // let top_left = Point { x: -bounding_box.x, y: bounding_box.y };
-    // let bottom_right = Point { x: bounding_box.x, y: -bounding_box.y };
-    // let bottom_left = Point { x: -bounding_box.x, y: -bounding_box.y };
-
-    // close the cell by picking the previous site extension to close the polygon
-    // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
-    cell.insert(cell.len() - 1, prev_vertex);
-    let bounding_box = bounding_box.top_right();
-
-    if mine.x.abs() == bounding_box.x && prev.x.abs() == bounding_box.x && mine.x != prev.x {
-        println!("Case 2: mine {:?} prev {:?}", mine, prev);
-        // cur and prev on oppositve X bounding lines
-        let dir = if prev.y.signum() != mine.y.signum() && prev.y.abs() > mine.y.abs() {
-            -mine.y.signum()
-        } else {
-            mine.y.signum()
-        };
-
-        let p = Point { x: prev.x, y: dir * bounding_box.y };
-        println!("  Added {:?}", p);
-        let i = circumcenters.len();
-        circumcenters.push(p);
-        cell.insert(cell.len() - 1, i);
-
-        let p = Point { x: mine.x, y: dir * bounding_box.y };
-        println!("  Added {:?}", p);
-        let i = circumcenters.len();
-        circumcenters.push(p);
-        cell.insert(cell.len() - 1, i);
-    } else if mine.y.abs() == bounding_box.y && prev.y.abs() == bounding_box.y && mine.y != prev.y {
-        println!("Case 3: mine {:?} prev {:?}", mine, prev);
-        // cur and prev on oppositve Y bounding lines
-        let dir = if prev.x.signum() != mine.x.signum() && prev.x.abs() > mine.x.abs() {
-            -mine.x.signum()
-        } else {
-            mine.x.signum()
-        };
-
-        let p = Point { x: dir * bounding_box.x, y: prev.y };
-        println!("  Added {:?}", p);
-        let i = circumcenters.len();
-        circumcenters.push(p);
-        cell.insert(cell.len() - 1, i);
-
-        let p = Point { x: dir * bounding_box.x, y: mine.y };
-        println!("  Added {:?}", p);
-        let i = circumcenters.len();
-        circumcenters.push(p);
-        cell.insert(cell.len() - 1, i);
-    } else if mine.x.abs() == bounding_box.x && prev.y.abs() == bounding_box.y {
-        println!("Case 0: mine {:?} prev {:?}", mine, prev);
-        let p = Point { x: mine.x, y: prev.y };
-        let i = circumcenters.len();
-        circumcenters.push(p);
-        cell.insert(cell.len() - 1, i);
-    } else if mine.y.abs() == bounding_box.y && prev.x.abs() == bounding_box.x {
-        println!("Case 1: mine {:?} prev {:?}", mine, prev);
-        let p = Point { x: prev.x, y: mine.y };
-        let i = circumcenters.len();
-        circumcenters.push(p);
-        cell.insert(cell.len() - 1, i);
-    }
 }
 
 // When reading this code think about 'edge' as the starting edge for a triangle

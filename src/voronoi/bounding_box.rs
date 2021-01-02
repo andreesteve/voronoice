@@ -1,6 +1,20 @@
 use delaunator::EPSILON;
-
 use super::Point;
+
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum BoundingBoxTopBottomEdge {
+    Top,
+    Bottom,
+    None
+}
+
+#[derive(PartialEq, Copy, Clone, Debug)]
+pub enum BoundingBoxLeftRightEdge {
+    Left,
+    Right,
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct BoundingBox {
     /// The center point of a rectangle.
@@ -58,6 +72,31 @@ impl BoundingBox {
     #[inline]
     pub fn is_exclusively_inside(&self, point: &Point) -> bool {
         point.x.abs() < self.top_right.x && point.y.abs() < self.top_right.y
+    }
+
+    /// Returns which edge, if any, the given `point` is located.
+    #[inline]
+    pub fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
+        (
+            if point.y == self.top_right.y {
+                // top
+                BoundingBoxTopBottomEdge::Top
+            } else if point.y == -self.top_right.y {
+                BoundingBoxTopBottomEdge::Bottom
+            } else {
+                BoundingBoxTopBottomEdge::None
+            },
+
+            if point.x == self.top_right.x {
+                // right
+                BoundingBoxLeftRightEdge::Right
+            } else if point.x == - self.top_right.x {
+                // left
+                BoundingBoxLeftRightEdge::Left
+            } else {
+                BoundingBoxLeftRightEdge::None
+            }
+        )
     }
 
     /// Intersects a line represented by points 'a' and 'b' and returns the two intersecting points with the box, or None
