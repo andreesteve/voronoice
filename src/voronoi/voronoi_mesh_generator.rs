@@ -54,7 +54,7 @@ impl VoronoiMeshGenerator<'_> {
         // println!("Half-edge for {} is {}", e, self.voronoi.triangulation.halfedges[e]);
 
         let mut indices: Vec<u32> = vec![];
-        for t in 0..self.voronoi.num_of_triangles {
+        for t in 0..self.voronoi.number_of_triangles() {
             indices.push(self.voronoi.triangulation.triangles[3 * t] as u32);
             indices.push(self.voronoi.triangulation.triangles[3 * t + 1] as u32);
 

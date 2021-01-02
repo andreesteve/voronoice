@@ -1,4 +1,4 @@
-use super::{BoundingBox, HullBehavior, Point, Voronoi};
+use super::{BoundingBox, ClipBehavior, HullBehavior, Point, Voronoi};
 use super::utils::calculate_approximated_cetroid;
 
 #[derive(Default)]
@@ -33,8 +33,9 @@ impl VoronoiBuilder {
     pub fn build(mut self) -> Option<Voronoi> {
         let v = Voronoi::new(
             self.sites.take().expect("Cannot build voronoi without sites. Call set_sites() first."),
+            self.bounding_box.take().unwrap_or(BoundingBox::new_centered_square(1.0)),
             self.hull_behavior,
-            self.bounding_box.take().unwrap_or(BoundingBox::new_centered_square(1.0))
+            ClipBehavior::Clip
         );
 
         self.perform_lloyd_relaxation(v)

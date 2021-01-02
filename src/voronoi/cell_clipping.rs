@@ -1,18 +1,25 @@
 use std::iter::once;
-use delaunator::EMPTY;
-use super::{HullBehavior, Point, bounding_box::{self, *}};
+use delaunator::{EMPTY, Triangulation};
+use super::{ClipBehavior, HullBehavior, Point, bounding_box::{self, *}, edges_around_site_iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
 
 pub struct CellBuilder {
     vertices: Vec<Point>,
     bounding_box: BoundingBox,
+    hull_behavior: HullBehavior,
+    clip_behavior: ClipBehavior,
     top_left_corner_index: usize,
     bottom_left_corner_index: usize,
     top_right_corner_index: usize,
     bottom_right_corner_index: usize,
 }
 
+pub struct CellBuilderResult {
+    pub cells: Vec<Vec<usize>>,
+    pub vertices: Vec<Point>
+}
+
 impl CellBuilder {
-    pub fn new(vertices: Vec<Point>, bounding_box: BoundingBox) -> Self {
+    pub fn new(vertices: Vec<Point>, bounding_box: BoundingBox, hull_behavior: HullBehavior, clip_behavior: ClipBehavior) -> Self {
         Self {
             top_right_corner_index: 0,
             top_left_corner_index: 0,
@@ -20,11 +27,138 @@ impl CellBuilder {
             bottom_right_corner_index: 0,
             vertices,
             bounding_box,
+            hull_behavior,
+            clip_behavior
         }
     }
 
-    pub fn build(self) -> Vec<Point> {
-        self.vertices
+    pub fn build(mut self, sites: &Vec<Point>, triangulation: &Triangulation, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> CellBuilderResult {
+        // adds the corners of the bounding box as potential vertices for the voronoi
+        self.calculate_corners();
+
+        // create the cells
+        let mut cells = build_cells(sites, triangulation, site_to_incoming_leftmost_halfedge);
+        self.extend_and_close_hull(sites, triangulation, &mut cells, site_to_incoming_leftmost_halfedge);
+
+        // clip cells
+        if self.clip_behavior == ClipBehavior::Clip {
+            for cell in cells.iter_mut() {
+                // FIX ME: if hull is not closed, this will fail because it expects cells to be closed
+                self.clip_and_close_cell(cell);
+            }
+        }
+
+        CellBuilderResult {
+            vertices: self.vertices,
+            cells
+        }
+    }
+
+    /// Extend, towards the bounding box edge, the `voronoi_vertex` orthogonally to the Delauney triangle edge represented by `a` -> `b`.
+    /// Creates the new vertex on the bounding box edge and returns it index on the `vertices` collection. In some situation, a second intersection may occur (voronoi_vertex outside box).
+    fn extend_vertex(&mut self, site: usize, a: &Point, b: &Point, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> (usize, Option<usize>) {
+        // the line extension must be perpendicular to the hull edge a->b
+        // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
+        let orthogonal = Point { x: a.y - b.y, y: b.x - a.x };
+
+        // get triangle this site belong to
+        let triangle = site_to_incoming_leftmost_halfedge[site];
+
+        // get voronoi vertex that needs to be extended and extend it (circumcenter for the triangle)
+        let voronoi_vertex = &self.vertices[triangle];
+        let projected = self.bounding_box.project_ray(voronoi_vertex, &orthogonal);
+
+        // two cases, voronoi_vertex is inside bounding box or outside; if outside, we need to clip the edge extension
+        if self.bounding_box.is_inside(voronoi_vertex) {
+            // single intersection/projection
+            let projected = projected.0.expect("Single intersection expected");
+            let index = self.vertices.len();
+            self.vertices.push(projected);
+            (index, None)
+        } else {
+            println!("WARNING: scenario not handled. A hull site has two vertices of extension.");
+
+            // two intersections when vertex is outside
+            let (first, _) = projected;
+            let index = self.vertices.len();
+            self.vertices.push(first.expect("First intersection expected"));
+
+            // FIXME
+            //self.vertices.push(second.expect("Second intersection expected"));
+            //(index, Some(index + 1))
+            (index, None)
+        }
+    }
+
+    fn extend_and_close_hull(&mut self, sites: &Vec<Point>, triangulation: &Triangulation, cells: &mut Vec<Vec<usize>>, site_to_incoming_leftmost_halfedge: &Vec<usize>) {
+        if self.hull_behavior == HullBehavior::None {
+            return;
+        }
+
+        // walk sites on the hull edges (counter-clockwise)
+        let hull_vertex_iter = triangulation.hull.iter().map(|site| (*site, &sites[*site]));
+        let hull_next_vertex_iter = hull_vertex_iter.clone().cycle().skip(1);
+
+        // each hull site has two vertices to be extended
+        // here we model that each site extended one, and borrows the previous site extension
+        // handle last -> first site edge here - a valid triangulation has at minimum three sites
+        let last_index = triangulation.hull.len() - 1;
+        let last_site = triangulation.hull[last_index];
+        let (mut prev_ext1, _) = self.extend_vertex(last_site, &sites[last_site], &sites[0], site_to_incoming_leftmost_halfedge);
+
+        // this will iterate thorugh all the edges: first -> second, second -> thrid, ...,  last -> first
+        hull_vertex_iter.zip(hull_next_vertex_iter)
+            .for_each(|((a_site, a_point), (_, b_point))| {
+                let cell = &mut cells[a_site];
+
+                // compute own extension
+                let (ext1, _) = self.extend_vertex(a_site, a_point, b_point, site_to_incoming_leftmost_halfedge);
+
+                // TODO: add tests to validate this order of insert is counter clockwise
+                // vertex order: non ext vertices -> prev ext -> current ext
+                cell.push(prev_ext1);
+                cell.push(ext1);
+
+                // FIXME: refactor link vertices function to return vertices instead of adding to the cell directly
+                // we could avoid vector reallocation this way
+                // need to close cell with my and prev extensions
+                self.link_vertices_around_box_edge(cell, cell.len() - 2, cell.len() - 1);
+
+                prev_ext1 = ext1;
+            });
+
+            // // FIXME: there are two extensions per site, I am doing just one here
+            // // cells on the hull need to have its edges extended to the edges of the box
+            // if is_hull_site && !cell.is_empty() && (hull_behavior == HullBehavior::Extended || hull_behavior == HullBehavior::Closed)  {
+            //     // during clipping, cells are shifted to the left, with previously first entry becoming last
+            //     // this happens if the cell is closed before clipping, since hull cells are open before clipping they are not shiffted
+            //     let index_of_cell_to_extend = 0;
+            //     // this is the vertex we will extend from
+            //     let cell_vertex_to_extend = &circumcenters[cell[index_of_cell_to_extend]];
+
+            //     // FIX ME: if the circumcenter is outside the box, the extension needs to be projected onto the far side
+            //     // if vertex is outside bounding box or on the box's edge, no need to extend it
+            //     if bounding_box.is_exclusively_inside(cell_vertex_to_extend) {
+            //         // get the point that the edge comes from
+            //         let source_site = triangulation.triangles[leftmost_edge];
+            //         let source_point = &sites[source_site];
+            //         let target_point = &sites[site];
+
+            //         // the line extension must be perpendicular to the hull edge
+            //         // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
+            //         let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
+
+            //         // get voronoi vertex that needs to be extended and extend it
+            //         let projected = bounding_box.project_ray_closest(cell_vertex_to_extend, &orthogonal).expect("Expected intersection with box");
+
+            //         // add extended vertex as a "fake" circumcenter
+            //         let vertex_index = circumcenters.len();
+            //         // this point is orthogonally extended towards the outside from the current cell[0], thus it needs to come in first
+            //         // be keep vertices in counterclockwise order
+            //         cell.insert(index_of_cell_to_extend, vertex_index);
+            //         circumcenters.push(projected);
+            //     }
+            // }
     }
 
     /// Cell is assumed to be closed.
@@ -332,85 +466,43 @@ impl CellBuilder {
         self.top_left_corner_index = bottom_right_index - 2;
         self.top_right_corner_index = bottom_right_index - 3;
     }
+}
 
-    // /// Assumes all points are inside the box (or on its edges). It may panic otherwise.
-    // fn close_cell(&mut self, cell: &mut Vec<usize>) {
-    //     if cell.len() < 3 {
-    //         panic!("I don't know how to close a cell with {} vertice(s)", cell.len());
-    //     }
+/// Builds cells for each site.
+/// This won't extend not close the hull.
+/// This will not clip any edges to the bounding box.
+fn build_cells(sites: &Vec<Point>, triangulation: &Triangulation, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> Vec<Vec<usize>> {
+    let num_of_sites = sites.len();
+    let mut seen_sites = vec![false; num_of_sites];
+    let mut cells = vec![Vec::new(); num_of_sites];
 
+    for edge in 0..triangulation.triangles.len() {
+        // triangle[edge] is the site 'edge' originates from, but EdgesAroundPointIterator
+        // iterate over edges around the site 'edge' POINTS TO, thus to get that site
+        // we need to take the next half-edge
+        let site = site_of_incoming(&triangulation, edge);
 
-    // }
+        // if we have already created the cell for this site, move on
+        if !seen_sites[site] {
+            seen_sites[site] = true;
 
+            // edge may or may not be the left-most incoming edge for site, thus get the one
+            // if iterator doesn't start this way, we may end cell vertex iteration early because
+            // we will hit the halfedge in the hull
+            let leftmost_edge = site_to_incoming_leftmost_halfedge[site];
 
-    //     let mine = vertices[curr_vertex].clone();
-    //     let prev = vertices[prev_vertex].clone();
+            // if there is no half-edge associated with the left-most edge, the edge is on the hull
+            // let is_hull_site = triangulation.halfedges[leftmost_edge] == EMPTY;
 
-    //     // FIXME: use same points for corners
-    //     // let top_right = Point { x: bounding_box.x, y: bounding_box.y };
-    //     // let top_left = Point { x: -bounding_box.x, y: bounding_box.y };
-    //     // let bottom_right = Point { x: bounding_box.x, y: -bounding_box.y };
-    //     // let bottom_left = Point { x: -bounding_box.x, y: -bounding_box.y };
+            let cell = &mut cells[site];
+            cell.extend(
+                EdgesAroundSiteIterator::new(&triangulation, leftmost_edge)
+                        .map(|e| utils::triangle_of_edge(e))
+            );
+        }
+    }
 
-    //     // close the cell by picking the previous site extension to close the polygon
-    //     // each edge (and site) on the hull has an associated extension, which is the last value in the cell list
-    //     cell.insert(cell.len() - 1, prev_vertex);
-    //     let bounding_box = bounding_box.top_right();
-
-    //     if mine.x.abs() == bounding_box.x && prev.x.abs() == bounding_box.x && mine.x != prev.x {
-    //         println!("Case 2: mine {:?} prev {:?}", mine, prev);
-    //         // cur and prev on oppositve X bounding lines
-    //         let dir = if prev.y.signum() != mine.y.signum() && prev.y.abs() > mine.y.abs() {
-    //             -mine.y.signum()
-    //         } else {
-    //             mine.y.signum()
-    //         };
-
-    //         let p = Point { x: prev.x, y: dir * bounding_box.y };
-    //         println!("  Added {:?}", p);
-    //         let i = vertices.len();
-    //         vertices.push(p);
-    //         cell.insert(cell.len() - 1, i);
-
-    //         let p = Point { x: mine.x, y: dir * bounding_box.y };
-    //         println!("  Added {:?}", p);
-    //         let i = vertices.len();
-    //         vertices.push(p);
-    //         cell.insert(cell.len() - 1, i);
-    //     } else if mine.y.abs() == bounding_box.y && prev.y.abs() == bounding_box.y && mine.y != prev.y {
-    //         println!("Case 3: mine {:?} prev {:?}", mine, prev);
-    //         // cur and prev on oppositve Y bounding lines
-    //         let dir = if prev.x.signum() != mine.x.signum() && prev.x.abs() > mine.x.abs() {
-    //             -mine.x.signum()
-    //         } else {
-    //             mine.x.signum()
-    //         };
-
-    //         let p = Point { x: dir * bounding_box.x, y: prev.y };
-    //         println!("  Added {:?}", p);
-    //         let i = vertices.len();
-    //         vertices.push(p);
-    //         cell.insert(cell.len() - 1, i);
-
-    //         let p = Point { x: dir * bounding_box.x, y: mine.y };
-    //         println!("  Added {:?}", p);
-    //         let i = vertices.len();
-    //         vertices.push(p);
-    //         cell.insert(cell.len() - 1, i);
-    //     } else if mine.x.abs() == bounding_box.x && prev.y.abs() == bounding_box.y {
-    //         println!("Case 0: mine {:?} prev {:?}", mine, prev);
-    //         let p = Point { x: mine.x, y: prev.y };
-    //         let i = vertices.len();
-    //         vertices.push(p);
-    //         cell.insert(cell.len() - 1, i);
-    //     } else if mine.y.abs() == bounding_box.y && prev.x.abs() == bounding_box.x {
-    //         println!("Case 1: mine {:?} prev {:?}", mine, prev);
-    //         let p = Point { x: prev.x, y: mine.y };
-    //         let i = vertices.len();
-    //         vertices.push(p);
-    //         cell.insert(cell.len() - 1, i);
-    //     }
-    // }
+    cells
 }
 
 #[cfg(test)]
@@ -418,7 +510,7 @@ mod test {
     use super::*;
 
     fn new_builder(vertices: Vec<Point>) -> CellBuilder {
-        CellBuilder::new(vertices, BoundingBox::new_centered_square(4.0))
+        CellBuilder::new(vertices, BoundingBox::new_centered_square(4.0), HullBehavior::Closed, ClipBehavior::Clip)
     }
 
     fn assert_same_elements(actual: &Vec<usize>, expected: &Vec<usize>, message: &str) {
@@ -431,7 +523,7 @@ mod test {
         let points: Vec<Point> = cell.iter().map(|c| builder.vertices[*c].clone()).collect();
 
         // are all points within the bounding box?
-        let points_outside: Vec<(usize, &Point)> = points.iter().enumerate().filter(|(i, p)| {
+        let points_outside: Vec<(usize, &Point)> = points.iter().enumerate().filter(|(_, p)| {
             !builder.bounding_box.is_inside(&p)
         }).collect();
         assert_eq!(0, points_outside.len(), "These points are outside bounding box: {:?}", points_outside);

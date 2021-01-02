@@ -21,7 +21,7 @@ impl<'v> VoronoiCell<'v> {
 
     /// Get the indices of the triangles of the dual Delauney triangulation that are associated with this Voronoi cell.
     pub fn get_triangles(&self) -> impl Iterator<Item=usize> + 'v + Clone {
-        self.voronoi.cell_triangles[self.site].iter().copied()
+        self.voronoi.cells[self.site].iter().copied()
     }
 
     /// Returns a boolean indicating whether this cell is on the hull (edge) of the diagram.
