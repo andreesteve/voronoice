@@ -155,11 +155,6 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
     let mut seen_sites = vec![false; num_of_sites];
     let mut cells = vec![Vec::new(); num_of_sites];
 
-    // let cell_builder = CellBuilder {
-    //     vertices: circumcenters,
-    //     bounding_box: bounding_box.clone()
-    // };
-
     for edge in 0..triangulation.triangles.len() {
         // triangle[edge] is the site 'edge' originates from, but EdgesAroundPointIterator
         // iterate over edges around the site 'edge' POINTS TO, thus to get that site
@@ -185,38 +180,38 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
                         .map(|e| utils::triangle_of_edge(e))
             );
 
-            // FIXME: there are two extensions per site, I am doing just one here
-            // cells on the hull need to have its edges extended to the edges of the box
-            if is_hull_site && !cell.is_empty() && (hull_behavior == HullBehavior::Extended || hull_behavior == HullBehavior::Closed)  {
-                // during clipping, cells are shifted to the left, with previously first entry becoming last
-                // this happens if the cell is closed before clipping, since hull cells are open before clipping they are not shiffted
-                let index_of_cell_to_extend = 0;
-                // this is the vertex we will extend from
-                let cell_vertex_to_extend = &circumcenters[cell[index_of_cell_to_extend]];
+            // // // // FIXME: there are two extensions per site, I am doing just one here
+            // // // // cells on the hull need to have its edges extended to the edges of the box
+            // // // if is_hull_site && !cell.is_empty() && (hull_behavior == HullBehavior::Extended || hull_behavior == HullBehavior::Closed)  {
+            // // //     // during clipping, cells are shifted to the left, with previously first entry becoming last
+            // // //     // this happens if the cell is closed before clipping, since hull cells are open before clipping they are not shiffted
+            // // //     let index_of_cell_to_extend = 0;
+            // // //     // this is the vertex we will extend from
+            // // //     let cell_vertex_to_extend = &circumcenters[cell[index_of_cell_to_extend]];
 
-                // FIX ME: if the circumcenter is outside the box, the extension needs to be projected onto the far side
-                // if vertex is outside bounding box or on the box's edge, no need to extend it
-                if bounding_box.is_exclusively_inside(cell_vertex_to_extend) {
-                    // get the point that the edge comes from
-                    let source_site = triangulation.triangles[leftmost_edge];
-                    let source_point = &sites[source_site];
-                    let target_point = &sites[site];
+            // // //     // FIX ME: if the circumcenter is outside the box, the extension needs to be projected onto the far side
+            // // //     // if vertex is outside bounding box or on the box's edge, no need to extend it
+            // // //     if bounding_box.is_exclusively_inside(cell_vertex_to_extend) {
+            // // //         // get the point that the edge comes from
+            // // //         let source_site = triangulation.triangles[leftmost_edge];
+            // // //         let source_point = &sites[source_site];
+            // // //         let target_point = &sites[site];
 
-                    // the line extension must be perpendicular to the hull edge
-                    // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
-                    let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
+            // // //         // the line extension must be perpendicular to the hull edge
+            // // //         // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
+            // // //         let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
 
-                    // get voronoi vertex that needs to be extended and extend it
-                    let projected = bounding_box.project_ray_closest(cell_vertex_to_extend, &orthogonal).expect("Expected intersection with box");
+            // // //         // get voronoi vertex that needs to be extended and extend it
+            // // //         let projected = bounding_box.project_ray_closest(cell_vertex_to_extend, &orthogonal).expect("Expected intersection with box");
 
-                    // add extended vertex as a "fake" circumcenter
-                    let vertex_index = circumcenters.len();
-                    // this point is orthogonally extended towards the outside from the current cell[0], thus it needs to come in first
-                    // be keep verteces in counterclockwise order
-                    cell.insert(index_of_cell_to_extend, vertex_index);
-                    circumcenters.push(projected);
-                }
-            }
+            // // //         // add extended vertex as a "fake" circumcenter
+            // // //         let vertex_index = circumcenters.len();
+            // // //         // this point is orthogonally extended towards the outside from the current cell[0], thus it needs to come in first
+            // // //         // be keep verteces in counterclockwise order
+            // // //         cell.insert(index_of_cell_to_extend, vertex_index);
+            // // //         circumcenters.push(projected);
+            // // //     }
+            // // // }
 
             // clip cell edges
             // let (new_cell, _) = clip_cell(cell, circumcenters, bounding_box, !is_hull_site);
@@ -287,7 +282,17 @@ impl Voronoi {
             }
         }
 
-        let cell_triangles = calculate_cell_triangles(hull_behavior, &sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites, &bounding_box);
+        let mut cell_triangles = calculate_cell_triangles(hull_behavior, &sites, &mut circumcenters, &triangulation, &site_to_halfedge, num_of_sites, &bounding_box);
+
+        let mut cell_builder = CellBuilder::new(circumcenters, bounding_box.clone());
+        cell_builder.calculate_corners();
+
+        for mut cell in &mut cell_triangles {
+            // FIX ME: remove hull edges that are open
+            cell_builder.clip_and_close_cell(cell);
+        }
+
+        circumcenters = cell_builder.build();
 
         Some(Voronoi {
             bounding_box,

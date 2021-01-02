@@ -1,6 +1,6 @@
 use std::iter::once;
 use delaunator::EMPTY;
-use super::{Point, bounding_box::{self, *}};
+use super::{HullBehavior, Point, bounding_box::{self, *}};
 
 pub struct CellBuilder {
     vertices: Vec<Point>,
@@ -12,7 +12,7 @@ pub struct CellBuilder {
 }
 
 impl CellBuilder {
-    pub fn new(mut vertices: Vec<Point>, bounding_box: BoundingBox) -> Self {
+    pub fn new(vertices: Vec<Point>, bounding_box: BoundingBox) -> Self {
         Self {
             top_right_corner_index: 0,
             top_left_corner_index: 0,
@@ -23,30 +23,36 @@ impl CellBuilder {
         }
     }
 
-    pub fn clip_cell(&mut self, cell: &Vec<usize>, is_closed: bool) -> (Vec<usize>, bool) {
-        if cell.len() < 2 {
-            return (cell.clone(), false);
+    pub fn build(self) -> Vec<Point> {
+        self.vertices
+    }
+
+    /// Cell is assumed to be closed.
+    /// Returns a value indicating whether this cell contains at least one edge inside the bounding box.
+    pub fn clip_and_close_cell(&mut self, cell: &mut Vec<usize>) -> bool {
+        if cell.len() < 3 {
+            panic!("Only closed cells can be clipped. A cell must have at least 3 vertices to possibly be closed.")
         }
 
-        // keep state to later filter out duplicate edges
-        let mut previous = if is_closed {
-            // if cell is closed, the "previous" is the first because the iterator below loops (last -> first), which will yeild a result
-            // like: [first, second ... last, first] before the duplication removal
-            // by setting this value here, the duplication removal will convert such result to
-            // [first, second, second, thrid, forth ... last, first] -> [second, thrid, forth, ... last, first]
-            // virtually shiftting the result to the right. This does not change the counter-clockwise ordering of the verteces
-            Some(*cell.first().expect("At least one vertex expected for a cell."))
-        } else {
-            None
-        };
+        // cell is closed, the "previous" is the first because the iterator below loops (last -> first), which will yeild a result
+        // like: [first, second ... last, first] before the duplication removal
+        // by setting this value here, the duplication removal will convert such result to
+        // [first, second, second, thrid, forth ... last, first] -> [second, thrid, forth, ... last, first]
+        // virtually shiftting the result to the right. This does not change the counter-clockwise ordering of the verteces
+        let mut previous = Some(*cell.first().expect("At least one vertex expected for a cell."));
 
-        // keeps track of whether this cell clipping opened up the cell
-        let mut closed = is_closed;
+        // keep track of the indices where the cell is open
+        // open_edges[i] will tell the index of new_cell after an edge removal
+        const MAX_OPEN_EDGES: usize = 20;
+        let mut open_edges = [EMPTY; MAX_OPEN_EDGES];
+        let mut open_edges_count = 0;
+        let mut vertex_count = 0;
+        let mut last_edge_removed = false;
 
         // iterates over (n, n+1)
-        let new_cell = cell.iter().zip(cell.iter().skip(1))
-            // if cell is closed, add (last, first) pair to the end to be handled too
-            .chain(once((cell.last().unwrap(), cell.first().unwrap())).filter(|_| is_closed))
+        *cell = cell.iter().zip(cell.iter().skip(1))
+            // cell is closed, add (last, first) pair to the end to be handled too
+            .chain(once((cell.last().unwrap(), cell.first().unwrap())))
             // clip edge and convert to list of indices again
             .flat_map(|(a, b)| {
                 let (new_a, new_b) = self.clip_cell_edge(*a, *b);
@@ -58,10 +64,10 @@ impl CellBuilder {
                 previous = Some(a);
 
                 // remove vertex if it is empty
-                if a == EMPTY {
+                let vertex = if a == EMPTY {
                     if prev == Some(EMPTY) {
                         // two EMPTY vertices removed in a row means an edge was removed
-                        closed = false;
+                        last_edge_removed = true;
                     }
                     None
                 } else if let Some(prev) = prev {
@@ -69,15 +75,56 @@ impl CellBuilder {
                         // vertex did not change
                         None
                     } else {
+                        // is we have a valid vertex, and one or more edges was removed
+                        if last_edge_removed {
+                            last_edge_removed = false;
+                            open_edges[open_edges_count] = vertex_count;
+                            open_edges_count += 1;
+                        }
+
+                        vertex_count += 1;
                         Some(a)
                     }
                 } else {
+                    // is we have a valid vertex, and one or more edges was removed
+                    if last_edge_removed {
+                        last_edge_removed = false;
+                        open_edges[open_edges_count] = vertex_count;
+                        open_edges_count += 1;
+                    }
+
+                    vertex_count += 1;
                     Some(a)
-                }
+                };
+
+                vertex
             })
             .collect::<Vec<usize>>();
 
-        (new_cell, closed)
+        if cell.len() < 2 {
+            // if 1 or 0 vertice in the box, this cell should be removed
+            return false;
+        }
+
+        // if edges were removed, cell is open and needs to be closed
+        let mut open_edge_index_adjustment = 0;
+        for i in 0..open_edges_count {
+            // FIXME: this can only happen for the first value (open_edges[0]), no need to check on every loop
+            // if we start iterating the cell on a vertex outside the box
+            // the paring vertex to close this edge wraps around the vector (i.e. need to close last -> first)
+            let (a, b) = if open_edges[i] == 0 {
+                (cell.len() - 1, open_edges[i])
+            } else {
+                let v = i + open_edge_index_adjustment;
+                (open_edges[v] - 1, open_edges[v])
+            };
+
+            // this many vertices were added between A and B, this means values were shifted right
+            open_edge_index_adjustment += self.link_vertices_around_box_edge(cell, a, b);
+        }
+
+        // if after closing, we are left with a line, this cell should be removed
+        cell.len() >= 3
     }
 
     /// Clips edge indexed by a -> b and return the indices of the verteces in the clipped edge (may be same values if no clipping was required).
@@ -123,7 +170,15 @@ impl CellBuilder {
                                 // FIXME: consider distance epislon comparison instead
                                 // intersection at same point (corner)
                                 new_b = EMPTY;
-                                self.vertices.push(clip_a);
+
+                                // check which corner it is and use the known index
+                                new_a = match self.bounding_box.which_edge(&clip_a) {
+                                    (BoundingBoxTopBottomEdge::Top, BoundingBoxLeftRightEdge::Right) => self.top_right_corner_index,
+                                    (BoundingBoxTopBottomEdge::Top, BoundingBoxLeftRightEdge::Left) => self.top_left_corner_index,
+                                    (BoundingBoxTopBottomEdge::Bottom, BoundingBoxLeftRightEdge::Right) => self.bottom_right_corner_index,
+                                    (BoundingBoxTopBottomEdge::Bottom, BoundingBoxLeftRightEdge::Left) => self.bottom_left_corner_index,
+                                    _ => panic!("All corners covered."),
+                                };
                             } else {
                                 self.vertices.push(clip_a);
                                 self.vertices.push(clip_b);
@@ -164,7 +219,8 @@ impl CellBuilder {
 
     /// Given two vertices `a` and `b` that are on the bounding box edge(s), returns what vertices must be added between them to conform with the bounding box format.
     /// `a` and `b` are assumed to be ordered counter-clockwise.
-    fn link_vertices_on_box(&mut self, cell: &mut Vec<usize>, a: usize, b: usize) {
+    /// Returns how many new vertices were added.
+    pub fn link_vertices_around_box_edge(&mut self, cell: &mut Vec<usize>, a: usize, b: usize) -> usize {
         let pa = &self.vertices[cell[a]];
         let pb = &self.vertices[cell[b]];
         let (mut a_bt, mut a_lr) = self.bounding_box.which_edge(pa);
@@ -177,7 +233,7 @@ impl CellBuilder {
         // short-circuit for case where a and b are on the same edge, and b is ahead of a, such case there is nothing to do
         if (a_bt != BoundingBoxTopBottomEdge::None && a_bt == b_bt && pa.x > pb.x)
         || (a_lr != BoundingBoxLeftRightEdge::None && a_lr == b_lr && pa.y > pb.y) {
-            return;
+            return 0;
         }
 
         // a full cycle in the box will yeild maximum
@@ -255,9 +311,11 @@ impl CellBuilder {
             let r = a + 1;
             cell.splice(r..r, new_vertices.iter().take(new_vertice_count).copied());
         }
+
+        new_vertice_count
     }
 
-    fn calculate_corners(&mut self) {
+    pub fn calculate_corners(&mut self) {
         // add all corners to the vertice list as they will be used for closing cells
         let top_right = self.bounding_box.top_right().clone();
         let mut top_left = top_right.clone(); top_left.x *= -1.0;
@@ -368,8 +426,25 @@ mod test {
         assert_eq!(0, actual.iter().copied().zip(expected.iter().copied()).filter(|(a,b)| a != b).collect::<Vec<(usize, usize)>>().len(), "Vectors have differing elements. Actual: {:?}. Expected: {:?}. {}", actual, expected, message);
     }
 
+    /// Check that the cell is ordered counter-clockwise and inside the bounding box.
+    fn assert_cell_consistency(cell: &Vec<usize>, builder: &CellBuilder) {
+        let points: Vec<Point> = cell.iter().map(|c| builder.vertices[*c].clone()).collect();
+
+        // are all points within the bounding box?
+        let points_outside: Vec<(usize, &Point)> = points.iter().enumerate().filter(|(i, p)| {
+            !builder.bounding_box.is_inside(&p)
+        }).collect();
+        assert_eq!(0, points_outside.len(), "These points are outside bounding box: {:?}", points_outside);
+
+        // is counter-clockwise? https://stackoverflow.com/questions/1165647/how-to-determine-if-a-list-of-polygon-points-are-in-clockwise-order
+        let area = points.iter().zip(points.iter().cycle().skip(1)).fold(0.0, |acc, (a, b)| {
+                acc + ((b.x - a.x) * (b.y + a.y))
+            });
+        assert_eq!(true, area < 0.0, "Area of the polygon must be less than 0 for it to be counter-clockwise ordered. Area: {}", area);
+    }
+
     #[test]
-    fn link_vertices_on_box_same_edge_b_after_a() {
+    fn link_vertices_around_box_edge_same_edge_b_after_a() {
         let mut builder = new_builder(vec![
             Point { x: 1.0, y: 2.0 },
             Point { x: -1.0, y: 2.0 },
@@ -377,12 +452,12 @@ mod test {
         let original_cell: Vec<usize> = (0..builder.vertices.len()).collect();
         let mut cell = original_cell.clone();
         builder.calculate_corners();
-        builder.link_vertices_on_box(&mut cell, 0, 1);
+        builder.link_vertices_around_box_edge(&mut cell, 0, 1);
         assert_same_elements(&cell, &original_cell, "No change expected. Same edge, b is after a");
     }
 
     #[test]
-    fn link_vertices_on_box_same_edge_b_before_a() {
+    fn link_vertices_around_box_edge_same_edge_b_before_a() {
         let mut builder = new_builder(vec![
             Point { x: -1.0, y: 2.0 },
             Point { x: 1.0, y: 2.0 },
@@ -390,12 +465,12 @@ mod test {
         let original_cell: Vec<usize> = (0..builder.vertices.len()).collect();
         let mut cell = original_cell.clone();
         builder.calculate_corners();
-        builder.link_vertices_on_box(&mut cell, 0, 1);
+        builder.link_vertices_around_box_edge(&mut cell, 0, 1);
         assert_same_elements(&cell, &vec![0, builder.top_left_corner_index, builder.bottom_left_corner_index, builder.bottom_right_corner_index, builder.top_right_corner_index, 1], "Full circuit expected because b is before a");
     }
 
     #[test]
-    fn link_vertices_on_box_same_edge_b_corner_before_a() {
+    fn link_vertices_around_box_edge_same_edge_b_corner_before_a() {
         let mut builder = new_builder(vec![
             Point { x: -1.0, y: 2.0 },
             Point { x: 2.0, y: 2.0 },
@@ -403,12 +478,12 @@ mod test {
         let original_cell: Vec<usize> = (0..builder.vertices.len()).collect();
         let mut cell = original_cell.clone();
         builder.calculate_corners();
-        builder.link_vertices_on_box(&mut cell, 0, 1);
+        builder.link_vertices_around_box_edge(&mut cell, 0, 1);
         assert_same_elements(&cell, &vec![0, builder.top_left_corner_index, builder.bottom_left_corner_index, builder.bottom_right_corner_index, 1], "Corners not expected to be duplicated");
     }
 
     #[test]
-    fn link_vertices_on_box_same_edge_a_top_left_b_bottom_right() {
+    fn link_vertices_around_box_edge_same_edge_a_top_left_b_bottom_right() {
         let mut builder = new_builder(vec![
             Point { x: -2.0, y: 2.0 },
             Point { x: 2.0, y: -2.0 },
@@ -416,12 +491,12 @@ mod test {
         let original_cell: Vec<usize> = (0..builder.vertices.len()).collect();
         let mut cell = original_cell.clone();
         builder.calculate_corners();
-        builder.link_vertices_on_box(&mut cell, 0, 1);
+        builder.link_vertices_around_box_edge(&mut cell, 0, 1);
         assert_same_elements(&cell, &vec![0, builder.bottom_left_corner_index, 1], "Corners not expected to be duplicated");
     }
 
     #[test]
-    fn link_vertices_on_box_same_edge_a_right_b_left() {
+    fn link_vertices_around_box_edge_same_edge_a_right_b_left() {
         let mut builder = new_builder(vec![
             Point { x: 2.0, y: 1.0 },
             Point { x: -2.0, y: 1.5 },
@@ -429,12 +504,12 @@ mod test {
         let original_cell: Vec<usize> = (0..builder.vertices.len()).collect();
         let mut cell = original_cell.clone();
         builder.calculate_corners();
-        builder.link_vertices_on_box(&mut cell, 0, 1);
+        builder.link_vertices_around_box_edge(&mut cell, 0, 1);
         assert_same_elements(&cell, &vec![0, builder.top_right_corner_index, builder.top_left_corner_index, 1], "Corners not expected to be duplicated");
     }
 
     #[test]
-    fn link_vertices_on_box_same_edge_a_left_b_right() {
+    fn link_vertices_around_box_edge_same_edge_a_left_b_right() {
         let mut builder = new_builder(vec![
             Point { x: -2.0, y: 1.0 },
             Point { x: 2.0, y: 1.5 },
@@ -442,13 +517,13 @@ mod test {
         let original_cell: Vec<usize> = (0..builder.vertices.len()).collect();
         let mut cell = original_cell.clone();
         builder.calculate_corners();
-        builder.link_vertices_on_box(&mut cell, 0, 1);
+        builder.link_vertices_around_box_edge(&mut cell, 0, 1);
         assert_same_elements(&cell, &vec![0, builder.bottom_left_corner_index, builder.bottom_right_corner_index, 1], "Corners not expected to be duplicated");
     }
 
 
     #[test]
-    fn link_vertices_on_box_same_edge_a_bottom_b_top() {
+    fn link_vertices_around_box_edge_same_edge_a_bottom_b_top() {
         let mut builder = new_builder(vec![
             Point { x: 1.0, y: -2.0 },
             Point { x: -1.5, y: 2.0 },
@@ -456,76 +531,75 @@ mod test {
         let original_cell: Vec<usize> = (0..builder.vertices.len()).collect();
         let mut cell = original_cell.clone();
         builder.calculate_corners();
-        builder.link_vertices_on_box(&mut cell, 0, 1);
+        builder.link_vertices_around_box_edge(&mut cell, 0, 1);
         assert_same_elements(&cell, &vec![0, builder.bottom_right_corner_index, builder.top_right_corner_index, 1], "Corners not expected to be duplicated");
     }
 
     #[test]
-    fn clip_cell_when_no_point_outside_box() {
+    fn clip_cell_edge_one_edge_crosses_one_box_edge() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 10.0, y: 0.0 },
+        ]);
+        let (a, b) = builder.clip_cell_edge(0, 1);
+        assert_eq!(a, 0, "A is inside box, should not change");
+        assert_eq!(b, 2, "New edge should have been added due to clipping");
+        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[2], "Point should have been added for clipped edge.");
+    }
+
+    #[test]
+    fn clip_cell_edge_one_edge_crosses_one_box_edge_inverted() {
+        let mut builder = new_builder(vec![
+            Point { x: 10.0, y: 0.0 },
+            Point { x: 0.0, y: 0.0 },
+        ]);
+        let (a, b) = builder.clip_cell_edge(0, 1);
+        assert_eq!(a, 2, "New edge should have been added due to clipping");
+        assert_eq!(b, 1, "B is inside box, should not change");
+        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[2], "Point should have been added for clipped edge.");
+    }
+
+    #[test]
+    fn clip_cell_edge_one_edge_crosses_two_box_edges() {
+        let mut builder = new_builder(vec![
+            Point { x: -10.0, y: 0.0 },
+            Point { x: 10.0, y: 0.0 },
+        ]);
+        let (a, b) = builder.clip_cell_edge(0, 1);
+        assert_eq!(a, 2, "New edge should have been added due to clipping");
+        assert_eq!(b, 3, "New edge should have been added due to clipping");
+        assert_eq!(Point { x: -2.0, y: 0.0 }, builder.vertices[2], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
+    }
+
+    #[test]
+    fn clip_and_close_cell_when_no_point_outside_box() {
         let mut builder = new_builder(vec![
             Point { x: 0.0, y: 0.0 },
             Point { x: 1.0, y: 0.0 },
             Point { x: 0.0, y: 1.0 },
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, false);
-        assert_same_elements(&clipped_cell, &cell, "No clipping expected");
-        assert_eq!(is_closed, false, "Clipping cannot close open cells.")
-    }
-
-    #[test]
-    fn clip_cell_one_edge_crosses_one_box_edge() {
-        let mut builder = new_builder(vec![
-            Point { x: 0.0, y: 0.0 },
-            Point { x: 10.0, y: 0.0 },
-        ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, false);
-        assert_same_elements(&clipped_cell, &vec![0, 2], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[2], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, false, "Clipping cannot close open cells.")
-    }
-
-    #[test]
-    fn clip_cell_one_edge_crosses_one_box_edge_inverted() {
-        let mut builder = new_builder(vec![
-            Point { x: 10.0, y: 0.0 },
-            Point { x: 0.0, y: 0.0 },
-        ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, false);
-        assert_same_elements(&clipped_cell, &vec![2, 1], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[2], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, false, "Clipping cannot close open cells.")
-    }
-
-    #[test]
-    fn clip_cell_one_edge_crosses_two_box_edges() {
-        let mut builder = new_builder(vec![
-            Point { x: -10.0, y: 0.0 },
-            Point { x: 10.0, y: 0.0 },
-        ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, false);
-        assert_same_elements(&clipped_cell, &vec![2, 3], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: -2.0, y: 0.0 }, builder.vertices[2], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, false, "Clipping cannot close open cells.")
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.clip_and_close_cell(&mut clipped_cell);
+        assert_same_elements(&clipped_cell, &vec![1, 2, 0], "No clipping expected");
+        assert_cell_consistency(&clipped_cell, &builder);
     }
 
     #[test]
     fn clip_triangular_cell_with_one_point_outside_box() {
         let mut builder = new_builder(vec![
             Point { x: 0.0, y: 0.0 },
-            Point { x: 0.0, y: -3.0 },
+            Point { x: 0.0, y: -3.0 }, // outside
             Point { x: 1.0, y: 0.0 },
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.clip_and_close_cell(&mut clipped_cell);
         assert_same_elements(&clipped_cell, &vec![3, 4, 2, 0], "Clipped cell incorrect indices.");
         assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 1.0 / 3.0, y: -2.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, true, "No edge was entirely outside of the box to cause the cell to be clipped open.")
+        assert_cell_consistency(&clipped_cell, &builder);
     }
 
     #[test]
@@ -533,29 +607,33 @@ mod test {
         let mut builder = new_builder(vec![
             Point { x: 1.0, y: 0.0 },
             Point { x: 0.0, y: 0.0 },
-            Point { x: 0.0, y: -3.0 },
+            Point { x: 0.0, y: -3.0 }, // outside
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.clip_and_close_cell(&mut clipped_cell);
         assert_same_elements(&clipped_cell, &vec![1, 3, 4, 0], "Clipped cell incorrect indices.");
         assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 1.0 / 3.0, y: -2.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, true, "No edge was entirely outside of the box to cause the cell to be clipped open.")
+        assert_cell_consistency(&clipped_cell, &builder);
     }
 
     #[test]
     fn clip_triangular_cell_with_two_points_outside_and_one_edge_entirely_outside_box() {
         let mut builder = new_builder(vec![
             Point { x: 0.0, y: 0.0 },
-            Point { x: 0.0, y: -30.0 },
-            Point { x: 20.0, y: 0.0 },
+            Point { x: 0.0, y: -30.0 }, // leaves through the bottom
+            Point { x: 20.0, y: 0.0 }, // comes back through the right
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
-        assert_same_elements(&clipped_cell, &vec![3, 4, 0], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, false, "One edge was entirely outside of the box to cause the cell to be clipped open.")
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        builder.clip_and_close_cell(&mut clipped_cell);
+        // builder adds 4 vertices all the time, so next index is 7
+        assert_same_elements(&clipped_cell, &vec![7, builder.bottom_right_corner_index, 8, 0], "Clipped cell incorrect indices.");
+        assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[7], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
+        assert_cell_consistency(&clipped_cell, &builder);
     }
 
     #[test]
@@ -565,30 +643,35 @@ mod test {
             Point { x: 0.0, y: -3.0 },
             Point { x: 3.0, y: 0.0 },
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
-        assert_same_elements(&clipped_cell, &vec![3, 4, 5, 6, 0], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 1.0, y: -2.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: -1.0 }, builder.vertices[5], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[6], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, true, "No entire edge was outside the box, so the cell must stay closed.")
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        builder.clip_and_close_cell(&mut clipped_cell);
+        // builder adds 4 vertices all the time, so next index is 7
+        assert_same_elements(&clipped_cell, &vec![7, 8, 9, 10, 0], "Clipped cell incorrect indices.");
+        assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[7], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 1.0, y: -2.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 2.0, y: -1.0 }, builder.vertices[9], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[10], "Point should have been added for clipped edge.");
+        assert_cell_consistency(&clipped_cell, &builder);
+        //assert_eq!(is_closed, true, "No entire edge was outside the box, so the cell must stay closed.")
     }
 
     #[test]
     fn clip_triangular_cell_with_one_edge_intersecting_box_corner() {
         let mut builder = new_builder(vec![
             Point { x: 0.0, y: 0.0 },
-            Point { x: 0.0, y: 4.0 },
             Point { x: 4.0, y: 0.0 },
+            Point { x: 0.0, y: 4.0 },
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
-        assert_same_elements(&clipped_cell, &vec![3, 4, 5, 0], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 0.0, y: 2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[4], "Point should have been added for clipped edge."); // corner
-        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[5], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, true, "No entire edge was outside the box, so the cell must stay closed.")
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        builder.clip_and_close_cell(&mut clipped_cell);
+        assert_same_elements(&clipped_cell, &vec![7, builder.top_right_corner_index , 8, 0], "Clipped cell incorrect indices.");
+        assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[7], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 0.0, y: 2.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
+        assert_cell_consistency(&clipped_cell, &builder);
     }
 
     // same as above but with triangle inverted, no vertex inside box
@@ -599,11 +682,12 @@ mod test {
             Point { x: 4.0, y: 0.0 },
             Point { x: 0.0, y: 4.0 },
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
-        assert_same_elements(&clipped_cell, &vec![3], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[3], "Point should have been added for clipped edge."); // corner
-        assert_eq!(is_closed, false, "Two edges outside of the box were removed.")
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
+        assert_eq!(keep_cell, false, "A single intersection at the coner with all other points outside the cell, should not keep this cell.");
+        assert_same_elements(&clipped_cell, &vec![builder.top_right_corner_index], "Clipped cell incorrect indices.");
     }
 
     #[test]
@@ -613,14 +697,17 @@ mod test {
             Point { x: 2.0, y: -4.0 },
             Point { x: 2.0, y: 4.0 },
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
-        assert_same_elements(&clipped_cell, &vec![3, 4, 5, 6, 0], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 1.0, y: -2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: -2.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[5], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 1.0, y: 2.0 }, builder.vertices[6], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, true, "No entire edge was outside the box, so the cell must stay closed.")
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        builder.clip_and_close_cell(&mut clipped_cell);
+        // FIXME: identify intersection at corners and return corner index instead of creating a new one
+        assert_same_elements(&clipped_cell, &vec![7, 8, 9, 10, 0], "Clipped cell incorrect indices.");
+        assert_eq!(Point { x: 1.0, y: -2.0 }, builder.vertices[7], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 2.0, y: -2.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[9], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 1.0, y: 2.0 }, builder.vertices[10], "Point should have been added for clipped edge.");
+        assert_cell_consistency(&clipped_cell, &builder);
     }
 
     #[test]
@@ -630,12 +717,15 @@ mod test {
             Point { x: 2.0, y: 4.0 },
             Point { x: 2.0, y: -4.0 },
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
-        assert_same_elements(&clipped_cell, &vec![3, 4], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: -2.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
-        assert_eq!(is_closed, false, "One edge outside box.")
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
+        assert_same_elements(&clipped_cell, &vec![7, 8], "Clipped cell incorrect indices.");
+        assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[7], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 2.0, y: -2.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
+        assert_eq!(keep_cell, false, "A line shared with one box edge, should not keep this cell.");
+        //assert_eq!(is_closed, false, "One edge outside box.")
     }
 
     // same case as above, but the entire parallel edge is shared with the box
@@ -646,20 +736,24 @@ mod test {
             Point { x: 2.0, y: 2.0 },
             Point { x: 2.0, y: -2.0 },
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, _) = builder.clip_cell(&cell, true);
-        assert_same_elements(&clipped_cell, &vec![3, 1, 2, 4], "Clipped cell incorrect indices.");
-        assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        builder.clip_and_close_cell(&mut clipped_cell);
+        assert_same_elements(&clipped_cell, &vec![7, 1, 2, 8], "Clipped cell incorrect indices.");
+        assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[7], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[1], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 2.0, y: -2.0 }, builder.vertices[2], "Point should have been added for clipped edge.");
-        assert_eq!(Point { x: 2.0, y: -2.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
+        assert_eq!(Point { x: 2.0, y: -2.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
+
+        // FIXME: the result is a rectangle with area 0 - code think cell is closed, but it should be removed
+        //assert_cell_consistency(&clipped_cell, &builder);
 
         // FIX ME: code thinks cell is closed, but that is not true in this case
         // ignoring for now as this shouldn't really happen for voronoi
         //assert_eq!(is_closed, false, "One edge outside box.");
     }
 
-    // FIX ME - this found a bug
     #[test]
     fn clip_triangular_cell_with_three_points_outside_box() {
         let mut builder = new_builder(vec![
@@ -668,10 +762,11 @@ mod test {
             Point { x: 15.0, y: 0.0 },
 
         ]);
-        let cell = (0..builder.vertices.len()).collect();
-        let (clipped_cell, is_closed) = builder.clip_cell(&cell, true);
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
+        assert_eq!(keep_cell, false, "No intersection with box, all points outside, should not keep the cell.");
         assert_same_elements(&clipped_cell, &vec![], "Clipped cell incorrect indices.");
-        assert_eq!(builder.vertices.len(), 3, "No new points expected.");
-        assert_eq!(is_closed, false, "A cell without verteces is by definition opened.");
     }
 }
