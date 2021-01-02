@@ -101,20 +101,20 @@ impl VoronoiMeshGenerator<'_> {
                     HullBehavior::None | HullBehavior::Extended => {
                         // FIXME: clipped cells may be open, so checking for hull only is not sufficient
                         // when hull is not closed, we cannot wrap line list or it will render extra edges
-                        let hull_verteces = self.voronoi.cells()
+                        let hull_vertices = self.voronoi.cells()
                             .filter(|c| c.is_on_hull())
                             .flat_map(|c| into_line_list(c.get_triangles()))
                             .map(|i| i as u32);
 
                         // for cells not on hull, they are always closed
-                        let mut verteces = self.voronoi.cells()
+                        let mut vertices = self.voronoi.cells()
                             .filter(|c| !c.is_on_hull())
                             .flat_map(|c| into_line_list_wrap(c.get_triangles()))
                             .map(|t| t as u32)
                             .collect::<Vec<u32>>();
 
-                        verteces.extend(hull_verteces);
-                        verteces
+                        vertices.extend(hull_vertices);
+                        vertices
                     },
 
                     HullBehavior::Closed => {

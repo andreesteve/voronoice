@@ -49,7 +49,7 @@ impl<'v> fmt::Debug for  VoronoiCell<'v> {
         }
 
         #[derive(Debug)]
-        struct CellVerteces {
+        struct Cellvertices {
             /// Each vertex is the circumcenter of a associated Delauney triangle
             triangles: Vec<usize>,
             positions: Vec<Point>
@@ -67,7 +67,7 @@ impl<'v> fmt::Debug for  VoronoiCell<'v> {
                     outgoing_site: self.voronoi.triangulation.triangles[leftmost_edge]
                 }
             })
-            .field("verteces", &CellVerteces {
+            .field("vertices", &Cellvertices {
                 triangles: self.get_triangles().collect(),
                 positions: self.get_triangles().map(|t| self.voronoi.circumcenters[t].clone()).collect()
             })

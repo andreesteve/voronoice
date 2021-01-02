@@ -43,9 +43,9 @@ impl VoronoiBuilder {
     fn perform_lloyd_relaxation(&mut self, mut v: Option<Voronoi>) -> Option<Voronoi> {
         for _ in 0..self.lloyd_iterations {
             if let Some(voronoi) = v {
-                // get verteces for each cell and approximate centroid
+                // get vertices for each cell and approximate centroid
                 let new_sites = (0..voronoi.sites.len())
-                    .map(|c| calculate_approximated_cetroid(voronoi.get_cell_verteces(c)))
+                    .map(|c| calculate_approximated_cetroid(voronoi.get_cell_vertices(c)))
                     .collect::<Vec<Point>>();
 
                 // recompute new voronoi with sites after relaxation

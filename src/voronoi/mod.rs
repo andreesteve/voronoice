@@ -24,7 +24,7 @@ pub enum HullBehavior {
     /// This means cells on the hull do not have its edges extended to the bounding box, nor closed.
     None,
 
-    /// Cells on the hull are only extended to the bounding box, but no additional verteces are added to make it a valid polygon.
+    /// Cells on the hull are only extended to the bounding box, but no additional vertices are added to make it a valid polygon.
     Extended,
 
     /// Cells on the hull are extended and closed such that they form a valid polygon.
@@ -54,7 +54,7 @@ pub struct Voronoi {
 
     /// The circumcenters of each triangle (indexed by triangle / triangle's starting half-edge).
     ///
-    /// For a given voronoi cell, its verteces are the circumcenters of its associated triangles.
+    /// For a given voronoi cell, its vertices are the circumcenters of its associated triangles.
     /// Values whose indexes are greater than sites.len() - 1 are not actual triangle circumcenters but voronoi cell vertices added to close sites on the convex hull.
     ///
     /// # Examples
@@ -207,7 +207,7 @@ fn calculate_cell_triangles(hull_behavior: HullBehavior, sites: &Vec<Point>, cir
             // // //         // add extended vertex as a "fake" circumcenter
             // // //         let vertex_index = circumcenters.len();
             // // //         // this point is orthogonally extended towards the outside from the current cell[0], thus it needs to come in first
-            // // //         // be keep verteces in counterclockwise order
+            // // //         // be keep vertices in counterclockwise order
             // // //         cell.insert(index_of_cell_to_extend, vertex_index);
             // // //         circumcenters.push(projected);
             // // //     }
@@ -307,7 +307,7 @@ impl Voronoi {
     }
 
     /// Returns an iterator that walks through each vertex of a voronoi cell in counter-clockwise manner.
-    pub fn get_cell_verteces(&self, cell: usize) -> impl Iterator<Item = &Point> {
+    pub fn get_cell_vertices(&self, cell: usize) -> impl Iterator<Item = &Point> {
         self.cell_triangles[cell].iter().map(move |t| {
             &self.circumcenters[*t]
         })

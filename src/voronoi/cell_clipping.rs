@@ -38,7 +38,7 @@ impl CellBuilder {
         // like: [first, second ... last, first] before the duplication removal
         // by setting this value here, the duplication removal will convert such result to
         // [first, second, second, thrid, forth ... last, first] -> [second, thrid, forth, ... last, first]
-        // virtually shiftting the result to the right. This does not change the counter-clockwise ordering of the verteces
+        // virtually shiftting the result to the right. This does not change the counter-clockwise ordering of the vertices
         let mut previous = Some(*cell.first().expect("At least one vertex expected for a cell."));
 
         // keep track of the indices where the cell is open
@@ -127,7 +127,7 @@ impl CellBuilder {
         cell.len() >= 3
     }
 
-    /// Clips edge indexed by a -> b and return the indices of the verteces in the clipped edge (may be same values if no clipping was required).
+    /// Clips edge indexed by a -> b and return the indices of the vertices in the clipped edge (may be same values if no clipping was required).
     /// Cells edges be returned as `EMPTY` indicating that the edge is completely outside the box and should be excluded.
     fn clip_cell_edge(&mut self, a: usize, b: usize) -> (usize, usize) {
         // we are iterating a -> b, counter-clockwise on the edges of the cell (cell may be open)
