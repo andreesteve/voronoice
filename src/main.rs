@@ -259,6 +259,7 @@ struct State {
     hull_behavior: HullBehavior,
     bounding_box: BoundingBox,
     site_type: SiteType,
+    show_boundingbox: bool
 }
 impl State {
     fn replace(&mut self, v: Option<Voronoi>) -> Option<&Voronoi> {
@@ -308,6 +309,8 @@ impl State {
         self.undo_list.clear();
         self.forward_list.clear();
         self.bounding_box = BoundingBox::new_centered_square(2.0);
+        self.show_boundingbox = true;
+        self.hull_behavior = HullBehavior::None;
     }
 
     fn new_builder(&self) -> VoronoiBuilder {
@@ -372,7 +375,7 @@ fn handle_input(
     commands: &mut Commands,
     query: Query<Entity, With<VertexColor>>,
     mut query_text: Query<&mut Text, With<StatusDisplay>>,
-    mut query_box: Query<&mut Transform, With<BoundingBox>>,
+    mut query_box: Query<(&mut Transform, &mut Visible), With<BoundingBox>>,
     mouse_query: Query<&Mouse>) {
 
     let mut respawn = false;
@@ -380,7 +383,7 @@ fn handle_input(
     // no voronoi, generate random one
     if !state.voronoi.is_some() && state.undo_list.is_empty() {
         respawn = true;
-        state.hull_behavior = HullBehavior::None;
+        state.clear();
         state.bounding_box = BoundingBox::new_centered_square(2.0);
         state.new_voronoi(20);
     }
@@ -400,10 +403,13 @@ fn handle_input(
             builder.set_bounding_box(state.bounding_box.clone());
             state.replace(builder.build());
         }
+    } else if input.just_pressed(KeyCode::V) {
+        state.show_boundingbox = !state.show_boundingbox;
     }
 
-    for mut box_t in query_box.iter_mut() {
+    for (mut box_t, mut visible) in query_box.iter_mut() {
         box_t.scale = Vec3::splat((state.bounding_box.width() / 2.0) as f32);
+        visible.is_visible = state.show_boundingbox;
     }
 
     // span new voronoi with new rendering but same points
@@ -436,9 +442,8 @@ fn handle_input(
     } else if input.just_pressed(KeyCode::H) {
         // change hull behavior
         state.hull_behavior = match state.hull_behavior {
-            HullBehavior::None => HullBehavior::Extended,
-            HullBehavior::Extended => HullBehavior::Closed,
-            HullBehavior::Closed => HullBehavior::None
+            HullBehavior::None => HullBehavior::ExtendAndClose,
+            HullBehavior::ExtendAndClose => HullBehavior::None
         };
         println!("Hull behavior set to {:?}", state.hull_behavior);
 

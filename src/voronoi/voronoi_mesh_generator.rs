@@ -98,7 +98,7 @@ impl VoronoiMeshGenerator<'_> {
         match self.topology {
             PrimitiveTopology::LineList => {
                 match self.voronoi.hull_behavior {
-                    HullBehavior::None | HullBehavior::Extended => {
+                    HullBehavior::None => {
                         // FIXME: clipped cells may be open, so checking for hull only is not sufficient
                         // when hull is not closed, we cannot wrap line list or it will render extra edges
                         let hull_vertices = self.voronoi.cells()
@@ -117,7 +117,7 @@ impl VoronoiMeshGenerator<'_> {
                         vertices
                     },
 
-                    HullBehavior::Closed => {
+                    HullBehavior::ExtendAndClose => {
                         // when hull is closed, all cells are closed
                         self.voronoi.cells()
                         .filter(|c| !c.is_on_hull())

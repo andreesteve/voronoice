@@ -1,5 +1,6 @@
 use std::iter::once;
 use delaunator::{EMPTY, Triangulation};
+use utils::triangle_of_edge;
 use super::{ClipBehavior, HullBehavior, Point, bounding_box::{self, *}, edges_around_site_iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
 
 pub struct CellBuilder {
@@ -38,13 +39,26 @@ impl CellBuilder {
 
         // create the cells
         let mut cells = build_cells(sites, triangulation, site_to_incoming_leftmost_halfedge);
-        self.extend_and_close_hull(sites, triangulation, &mut cells, site_to_incoming_leftmost_halfedge);
+
+        // handle hull
+        // FIXME: if hull is open, clip and close cell crashes, find a way to handle it.
+        if self.hull_behavior == HullBehavior::ExtendAndClose || self.clip_behavior == ClipBehavior::Clip {
+            // FIXME docs say hull is counterclockwise, but it is not it seems
+            let hull = triangulation.hull.iter().rev().copied().collect();
+
+            // FIXME: do we need to clip edges here too? circumcenter far away from triangle with neighboring triangle?
+            self.extend_and_close_hull(sites, &hull, &mut cells, site_to_incoming_leftmost_halfedge);
+        }
 
         // clip cells
         if self.clip_behavior == ClipBehavior::Clip {
+            let mut i = 0;
             for cell in cells.iter_mut() {
                 // FIX ME: if hull is not closed, this will fail because it expects cells to be closed
+                if triangulation.hull.contains(&i) { continue };
+
                 self.clip_and_close_cell(cell);
+                i += 1;
             }
         }
 
@@ -55,56 +69,43 @@ impl CellBuilder {
     }
 
     /// Extend, towards the bounding box edge, the `voronoi_vertex` orthogonally to the Delauney triangle edge represented by `a` -> `b`.
-    /// Creates the new vertex on the bounding box edge and returns it index on the `vertices` collection. In some situation, a second intersection may occur (voronoi_vertex outside box).
-    fn extend_vertex(&mut self, site: usize, a: &Point, b: &Point, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> (usize, Option<usize>) {
-        // the line extension must be perpendicular to the hull edge a->b
-        // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
-        let orthogonal = Point { x: a.y - b.y, y: b.x - a.x };
-
-        // get triangle this site belong to
-        let triangle = site_to_incoming_leftmost_halfedge[site];
-
+    /// Creates the new vertex on the bounding box edge and returns it index on the `vertices` collection.
+    fn extend_vertex(&mut self, vertex_index: usize, a: &Point, b: &Point) -> (usize, bool) {
         // get voronoi vertex that needs to be extended and extend it (circumcenter for the triangle)
-        let voronoi_vertex = &self.vertices[triangle];
-        let projected = self.bounding_box.project_ray(voronoi_vertex, &orthogonal);
+        let voronoi_vertex = &self.vertices[vertex_index];
 
-        // two cases, voronoi_vertex is inside bounding box or outside; if outside, we need to clip the edge extension
-        if self.bounding_box.is_inside(voronoi_vertex) {
-            // single intersection/projection
-            let projected = projected.0.expect("Single intersection expected");
-            let index = self.vertices.len();
-            self.vertices.push(projected);
-            (index, None)
-        } else {
-            println!("WARNING: scenario not handled. A hull site has two vertices of extension.");
+        //  when vertex is outside bounding box, instead of "extending" vertex, we "move" it to the bounding box (the caller will do it)
+        let is_outside = !self.bounding_box.is_inside(voronoi_vertex);
 
-            // two intersections when vertex is outside
-            let (first, _) = projected;
-            let index = self.vertices.len();
-            self.vertices.push(first.expect("First intersection expected"));
+        // the vertex is the circumcenter of the triangle of edge a->b
+        // the vertex is on the a->b bisector line, thus we can take midpoint of a->b and vertex for the orthogonal projection
 
-            // FIXME
-            //self.vertices.push(second.expect("Second intersection expected"));
-            //(index, Some(index + 1))
-            (index, None)
-        }
+        let edge_midpoint = Point { x: (a.x + b.x) / 2.0, y: (a.y + b.y) / 2.0 };
+        // clockwise rotation 90 degree from edge direction
+        let orthogonal = Point { x: b.y - a.y, y: a.x - b.x };
+
+        // take the projection and add it to the graph vertex list
+        let projected = self.bounding_box.project_ray_closest(&edge_midpoint, &orthogonal).expect("At least one intersection was expected");
+        let index = self.vertices.len();
+        self.vertices.push(projected);
+
+        (index, is_outside)
     }
 
-    fn extend_and_close_hull(&mut self, sites: &Vec<Point>, triangulation: &Triangulation, cells: &mut Vec<Vec<usize>>, site_to_incoming_leftmost_halfedge: &Vec<usize>) {
-        if self.hull_behavior == HullBehavior::None {
-            return;
-        }
-
+    fn extend_and_close_hull(&mut self, sites: &Vec<Point>, hull_sites: &Vec<usize>, cells: &mut Vec<Vec<usize>>, site_to_incoming_leftmost_halfedge: &Vec<usize>) {
         // walk sites on the hull edges (counter-clockwise)
-        let hull_vertex_iter = triangulation.hull.iter().map(|site| (*site, &sites[*site]));
+        let hull_vertex_iter = hull_sites.iter().map(|site| (*site, &sites[*site]));
         let hull_next_vertex_iter = hull_vertex_iter.clone().cycle().skip(1);
 
         // each hull site has two vertices to be extended
         // here we model that each site extended one, and borrows the previous site extension
         // handle last -> first site edge here - a valid triangulation has at minimum three sites
-        let last_index = triangulation.hull.len() - 1;
-        let last_site = triangulation.hull[last_index];
-        let (mut prev_ext1, _) = self.extend_vertex(last_site, &sites[last_site], &sites[0], site_to_incoming_leftmost_halfedge);
+        let last_index = hull_sites.len() - 1;
+        let last_site = hull_sites[last_index];
+        // get triangle this site belong to, its circumcenter is the voronoi vertex we want to extend
+        let triangle = triangle_of_edge(site_to_incoming_leftmost_halfedge[last_site]);
+        let (mut prev_ext, replace) = self.extend_vertex(triangle, &sites[last_site], &sites[hull_sites[0]]);
+        // TODO handle replace for the first one
 
         // this will iterate thorugh all the edges: first -> second, second -> thrid, ...,  last -> first
         hull_vertex_iter.zip(hull_next_vertex_iter)
@@ -112,19 +113,29 @@ impl CellBuilder {
                 let cell = &mut cells[a_site];
 
                 // compute own extension
-                let (ext1, _) = self.extend_vertex(a_site, a_point, b_point, site_to_incoming_leftmost_halfedge);
+                let a_triangle = triangle_of_edge(site_to_incoming_leftmost_halfedge[a_site]);
+                let (ext, replace) = self.extend_vertex(a_triangle, a_point, b_point);
 
-                // TODO: add tests to validate this order of insert is counter clockwise
                 // vertex order: non ext vertices -> prev ext -> current ext
-                cell.push(prev_ext1);
-                cell.push(ext1);
+                cell.push(prev_ext);
 
-                // FIXME: refactor link vertices function to return vertices instead of adding to the cell directly
-                // we could avoid vector reallocation this way
-                // need to close cell with my and prev extensions
-                self.link_vertices_around_box_edge(cell, cell.len() - 2, cell.len() - 1);
+                if replace {
+                    // this means our vertex was outside the bounding box, we need to replace it with the projection on the box
+                    cell[0] = ext;
 
-                prev_ext1 = ext1;
+                    // need to close cell - prev ext -> my projected vertex
+                    self.link_vertices_around_box_edge(cell, cell.len() - 1, 0);
+                } else {
+                    // otherwise, add extension
+                    cell.push(ext);
+
+                    // need to close cell - prev ext -> my ext
+                    self.link_vertices_around_box_edge(cell, cell.len() - 2, cell.len() - 1);
+                }
+
+                // FIXME: refactor link vertices function to return vertices instead of adding to the cell directly, we could avoid vector reallocation this way
+
+                prev_ext = ext;
             });
 
             // // FIXME: there are two extensions per site, I am doing just one here
@@ -510,7 +521,7 @@ mod test {
     use super::*;
 
     fn new_builder(vertices: Vec<Point>) -> CellBuilder {
-        CellBuilder::new(vertices, BoundingBox::new_centered_square(4.0), HullBehavior::Closed, ClipBehavior::Clip)
+        CellBuilder::new(vertices, BoundingBox::new_centered_square(4.0), HullBehavior::ExtendAndClose, ClipBehavior::Clip)
     }
 
     fn assert_same_elements(actual: &Vec<usize>, expected: &Vec<usize>, message: &str) {
@@ -518,8 +529,19 @@ mod test {
         assert_eq!(0, actual.iter().copied().zip(expected.iter().copied()).filter(|(a,b)| a != b).collect::<Vec<(usize, usize)>>().len(), "Vectors have differing elements. Actual: {:?}. Expected: {:?}. {}", actual, expected, message);
     }
 
+    fn assert_cell_vertex(builder: &CellBuilder, cell: &Vec<usize>, message: &str, expected_vertices: Vec<Point>) {
+        let cell_vertices = cell.iter().map(|c| builder.vertices[*c].clone()).collect::<Vec<Point>>();
+        assert_eq!(expected_vertices.len() , cell.len(), "Cell vertex count is incorrect. Expected {:#?}, found {:#?}. {}", expected_vertices, cell_vertices, message);
+
+        cell_vertices.iter().enumerate().zip(expected_vertices.iter()).for_each(|((index, actual), expected)| {
+            assert_eq!(expected, actual, "Invalid vertex for position {}. Expected cell vertices {:#?}, found {:#?} {}", index, expected_vertices, cell_vertices, message);
+        });
+
+        assert_cell_consistency(cell, builder, message);
+    }
+
     /// Check that the cell is ordered counter-clockwise and inside the bounding box.
-    fn assert_cell_consistency(cell: &Vec<usize>, builder: &CellBuilder) {
+    fn assert_cell_consistency(cell: &Vec<usize>, builder: &CellBuilder, message: &str) {
         let points: Vec<Point> = cell.iter().map(|c| builder.vertices[*c].clone()).collect();
 
         // are all points within the bounding box?
@@ -675,7 +697,7 @@ mod test {
         let mut clipped_cell = cell.clone();
         builder.clip_and_close_cell(&mut clipped_cell);
         assert_same_elements(&clipped_cell, &vec![1, 2, 0], "No clipping expected");
-        assert_cell_consistency(&clipped_cell, &builder);
+        assert_cell_consistency(&clipped_cell, &builder, "Cell consistency check");
     }
 
     #[test]
@@ -691,7 +713,7 @@ mod test {
         assert_same_elements(&clipped_cell, &vec![3, 4, 2, 0], "Clipped cell incorrect indices.");
         assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 1.0 / 3.0, y: -2.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
-        assert_cell_consistency(&clipped_cell, &builder);
+        assert_cell_consistency(&clipped_cell, &builder, "Cell consistency check");
     }
 
     #[test]
@@ -707,7 +729,7 @@ mod test {
         assert_same_elements(&clipped_cell, &vec![1, 3, 4, 0], "Clipped cell incorrect indices.");
         assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[3], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 1.0 / 3.0, y: -2.0 }, builder.vertices[4], "Point should have been added for clipped edge.");
-        assert_cell_consistency(&clipped_cell, &builder);
+        assert_cell_consistency(&clipped_cell, &builder, "Cell consistency check");
     }
 
     #[test]
@@ -725,7 +747,7 @@ mod test {
         assert_same_elements(&clipped_cell, &vec![7, builder.bottom_right_corner_index, 8, 0], "Clipped cell incorrect indices.");
         assert_eq!(Point { x: 0.0, y: -2.0 }, builder.vertices[7], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
-        assert_cell_consistency(&clipped_cell, &builder);
+        assert_cell_consistency(&clipped_cell, &builder, "Cell consistency check");
     }
 
     #[test]
@@ -745,7 +767,7 @@ mod test {
         assert_eq!(Point { x: 1.0, y: -2.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 2.0, y: -1.0 }, builder.vertices[9], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[10], "Point should have been added for clipped edge.");
-        assert_cell_consistency(&clipped_cell, &builder);
+        assert_cell_consistency(&clipped_cell, &builder, "Cell consistency check");
         //assert_eq!(is_closed, true, "No entire edge was outside the box, so the cell must stay closed.")
     }
 
@@ -763,7 +785,7 @@ mod test {
         assert_same_elements(&clipped_cell, &vec![7, builder.top_right_corner_index , 8, 0], "Clipped cell incorrect indices.");
         assert_eq!(Point { x: 2.0, y: 0.0 }, builder.vertices[7], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 0.0, y: 2.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
-        assert_cell_consistency(&clipped_cell, &builder);
+        assert_cell_consistency(&clipped_cell, &builder, "Cell consistency check");
     }
 
     // same as above but with triangle inverted, no vertex inside box
@@ -799,7 +821,7 @@ mod test {
         assert_eq!(Point { x: 2.0, y: -2.0 }, builder.vertices[8], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 2.0, y: 2.0 }, builder.vertices[9], "Point should have been added for clipped edge.");
         assert_eq!(Point { x: 1.0, y: 2.0 }, builder.vertices[10], "Point should have been added for clipped edge.");
-        assert_cell_consistency(&clipped_cell, &builder);
+        assert_cell_consistency(&clipped_cell, &builder, "Cell consistency check");
     }
 
     #[test]
@@ -861,4 +883,255 @@ mod test {
         assert_eq!(keep_cell, false, "No intersection with box, all points outside, should not keep the cell.");
         assert_same_elements(&clipped_cell, &vec![], "Clipped cell incorrect indices.");
     }
+
+    #[test]
+    fn extend_vertex_non_degenerated_circumcenter() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.5, y: 0.0 }, // vertex to be extended
+        ]);
+        let (ext, _) = builder.extend_vertex(0, &Point { x: 1.0, y: 1.0 }, &Point { x: 0.0, y: 1.0 });
+        assert_eq!(Point { x: 0.5, y: 2.0 }, builder.vertices[ext], "Extension expected to be orthogonal to a -> b and on the bounding box edge.");
+    }
+
+    #[test]
+    fn extend_vertex_degenerated_circumcenter() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.0, y: 5.0 }, // vertex to be extended
+        ]);
+        let (ext, replace) = builder.extend_vertex(0, &Point { x: 1.4, y: 0.0 }, &Point { x: 0.0, y: 0.0 });
+        assert_eq!(Point { x: 0.7, y: 2.0 }, builder.vertices[ext], "Extension expected to be orthogonal to a -> b and on the bounding box edge.");
+        assert_eq!(replace, true, "Vertex need to be replaced because it is outside box");
+    }
+
+    #[test]
+    fn extend_and_close_hull_single_right_angle_triangle() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.5, y: 0.5 }, // vertex to be extended
+        ]);
+        builder.calculate_corners();
+        let sites = vec![
+            Point { x: 1.0, y: 1.0 },
+            Point { x: 0.0, y: 1.0 },
+            Point { x: 0.0, y: 0.0 },
+        ];
+        assert_eq!(builder.vertices[0], utils::cicumcenter(&sites[0], &sites[1], &sites[2]), "I got the circumcenter wrong.");
+        let hull_sites = (0..sites.len()).collect();
+        let mut cells = vec![
+            vec![0],
+            vec![0],
+            vec![0],
+        ];
+        let site_to_leftmost_incoming_edge = vec![0, 1, 2];
+        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells, &site_to_leftmost_incoming_edge);
+
+        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: 2.0, y: -1.0 },
+            Point { x: 2.0, y: 2.0 },
+            Point { x: 0.5, y: 2.0 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: 0.5, y: 2.0 },
+            Point { x: -2.0, y: 2.0 },
+            Point { x: -2.0, y: 0.5 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: -2.0, y: 0.5 },
+            Point { x: -2.0, y: -2.0 },
+            Point { x: 2.0, y: -2.0 },
+            Point { x: 2.0, y: -1.0 },
+        ]);
+    }
+
+    #[test]
+    fn extend_and_close_hull_single_degenerated_triangle() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.5, y: -0.5 }, // vertex to be extended
+        ]);
+        builder.calculate_corners();
+        let sites = vec![
+            Point { x: 1.0, y: 1.0 },
+            Point { x: 0.0, y: 1.0 },
+            Point { x: -1.0, y: 0.0 },
+        ];
+        assert_eq!(builder.vertices[0], utils::cicumcenter(&sites[0], &sites[1], &sites[2]), "I got the circumcenter wrong.");
+        let hull_sites = (0..sites.len()).collect();
+        let mut cells = vec![
+            vec![0],
+            vec![0],
+            vec![0],
+        ];
+        let site_to_leftmost_incoming_edge = vec![0, 1, 2];
+        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells, &site_to_leftmost_incoming_edge);
+
+        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: 2.0, y: -1.0 },
+            Point { x: 2.0, y: 2.0 },
+            Point { x: 0.5, y: 2.0 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: 0.5, y: 2.0 },
+            Point { x: -2.0, y: 2.0 },
+            Point { x: -2.0, y: 0.5 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: -2.0, y: 0.5 },
+            Point { x: -2.0, y: -2.0 },
+            Point { x: 2.0, y: -2.0 },
+            Point { x: 2.0, y: -1.0 },
+        ]);
+    }
+
+    #[test]
+    fn extend_and_close_hull_single_acute_triangle() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.5, y: 0.625 }, // vertex to be extended
+        ]);
+        builder.calculate_corners();
+        let sites = vec![
+            Point { x: 1.0, y: 1.0 },
+            Point { x: 0.0, y: 1.0 },
+            Point { x: 0.5, y: 0.0 },
+        ];
+        assert_eq!(builder.vertices[0], utils::cicumcenter(&sites[0], &sites[1], &sites[2]), "I got the circumcenter wrong.");
+        let hull_sites = (0..sites.len()).collect();
+        let mut cells = vec![
+            vec![0],
+            vec![0],
+            vec![0],
+        ];
+        let site_to_leftmost_incoming_edge = vec![0, 1, 2];
+        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells, &site_to_leftmost_incoming_edge);
+
+        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: 2.0, y: -1.0 },
+            Point { x: 2.0, y: 2.0 },
+            Point { x: 0.5, y: 2.0 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: 0.5, y: 2.0 },
+            Point { x: -2.0, y: 2.0 },
+            Point { x: -2.0, y: 0.5 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
+            Point { x: 0.5, y: 0.5 },
+            Point { x: -2.0, y: 0.5 },
+            Point { x: -2.0, y: -2.0 },
+            Point { x: 2.0, y: -2.0 },
+            Point { x: 2.0, y: -1.0 },
+        ]);
+    }
+
+    #[test]
+    fn extend_and_close_hull_two_triangles() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 0.25, y: -0.25 },
+        ]);
+        builder.calculate_corners();
+        let sites = vec![
+            Point { x: 1.0, y: 1.0 },
+            Point { x: -1.0, y: 1.0 },
+            Point { x: -1.0, y: -1.0 },
+            Point { x: 1.5, y: -1.0 },
+        ];
+        // let t = delaunator::triangulate(&sites).unwrap();
+        // println!("{:#?}", t.triangles);
+        // println!("{:#?}", t.halfedges);
+        let hull_sites = (0..sites.len()).collect();
+        let mut cells = vec![
+            vec![0, 1],
+            vec![0],
+            vec![1, 0],
+            vec![1],
+        ];
+        let site_to_leftmost_incoming_edge = vec![1, 0, 4, 5];
+        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells, &site_to_leftmost_incoming_edge);
+
+        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 0.25, y: -0.25 },
+            Point { x: 2.0, y: 0.1875 },
+            Point { x: 2.0, y: 2.0 },
+            Point { x: 0.0, y: 2.0 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 0.0, y: 2.0 },
+            Point { x: -2.0, y: 2.0 },
+            Point { x: -2.0, y: 0.0 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
+            Point { x: 0.25, y: -0.25 },
+            Point { x: 0.0, y: 0.0 },
+            Point { x: -2.0, y: 0.0 },
+            Point { x: -2.0, y: -2.0 },
+            Point { x: 0.25, y: -2.0 },
+        ]);
+
+        assert_cell_vertex(&builder, &cells[3], "Forth cell", vec![
+            Point { x: 0.25, y: -0.25 },
+            Point { x: 0.25, y: -2.0 },
+            Point { x: 2.0, y: -2.0 },
+            Point { x: 2.0, y: 0.1875 },
+        ]);
+    }
+
+    // #[test]
+    // fn extend_and_close_hull_single_degenerated_triangle() {
+    //     let mut builder = new_builder(vec![
+    //         Point { x: 0.0, y: 5.05 }, // vertex to be extended (circumcenter of the triangle below)
+    //     ]);
+    //     builder.calculate_corners();
+    //     let sites = vec![
+    //         Point { x: 0.0, y: 0.0 },
+    //         Point { x: 1.0, y: 0.1 },
+    //         Point { x: -1.0, y: 0.1 },
+    //     ];
+    //     let hull_sites = (0..sites.len()).collect();
+    //     let mut cells = vec![
+    //         vec![0],
+    //         vec![0],
+    //         vec![0],
+    //     ];
+    //     let site_to_leftmost_incoming_edge = vec![0, 1, 2];
+    //     builder.extend_and_close_hull(&sites, &hull_sites, &mut cells, &site_to_leftmost_incoming_edge);
+
+    //     assert_cell_vertex(&builder, &cells[0], "First cell", vec![
+    //         Point { x: 0.5, y: 0.0 },
+    //         Point { x: 2.0, y: -1.5 },
+    //         Point { x: 2.0, y: 2.0 },
+    //         Point { x: 0.5, y: 2.0 },
+    //     ]);
+
+    //     assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
+    //         Point { x: 0.5, y: 0.0 },
+    //         Point { x: 0.5, y: 2.0 },
+    //         Point { x: -2.0, y: 2.0 },
+    //         Point { x: -2.0, y: 0.0 },
+    //     ]);
+
+    //     assert_cell_vertex(&builder, &cells[2], "Second cell", vec![
+    //         Point { x: 0.5, y: 0.0 },
+    //         Point { x: -2.0, y: 0.0 },
+    //         Point { x: -2.0, y: -2.0 },
+    //         Point { x: 2.0, y: -2.0 },
+    //         Point { x: 2.0, y: -1.5 },
+    //     ]);
+    // }
 }

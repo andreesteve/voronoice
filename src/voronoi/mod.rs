@@ -25,16 +25,13 @@ pub enum HullBehavior {
     /// This means cells on the hull do not have its edges extended to the bounding box, nor closed.
     None,
 
-    /// Cells on the hull are only extended to the bounding box, but no additional vertices are added to make it a valid polygon.
-    Extended,
-
-    /// Cells on the hull are extended and closed such that they form a valid polygon.
-    Closed
+    /// Cells on the hull are extended to the bounding box and closed by adding additional vertices.
+    ExtendAndClose
 }
 
 impl Default for HullBehavior {
     fn default() -> Self {
-        HullBehavior::Closed
+        HullBehavior::ExtendAndClose
     }
 }
 
