@@ -18,12 +18,6 @@ pub struct CellBuilderResult {
     pub vertices: Vec<Point>
 }
 
-#[derive(Debug)]
-enum ClipExtensionResult {
-    Clipped(usize, usize),
-    Extended(usize)
-}
-
 impl CellBuilder {
     pub fn new(vertices: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Self {
         Self {
@@ -65,53 +59,14 @@ impl CellBuilder {
 
         // clip cells
         if self.clip_behavior == ClipBehavior::Clip {
-            let mut i = 0;
             for cell in cells.iter_mut() {
-                let p = i;
-                i += 1;
-                // FIX ME: if hull is not closed, this will fail because it expects cells to be closed
-                //if triangulation.hull.contains(&p) { continue };
-
                 self.clip_and_close_cell(cell);
-
             }
         }
 
         CellBuilderResult {
             vertices: self.vertices,
             cells
-        }
-    }
-
-    /// Extend, towards the bounding box edge, the `voronoi_vertex` orthogonally to the Delauney triangle edge represented by `a` -> `b`.
-    /// Creates the new vertex on the bounding box edge and returns it index on the `vertices` collection.
-    fn extend_or_clip_vertex(&mut self, voronoi_vertex_index: usize, prev_voronoi_vertex_index: usize, site_a: &Point, site_b: &Point) -> ClipExtensionResult {
-        let voronoi_vertex = &self.vertices[voronoi_vertex_index];
-
-        //  depending whether the vertex is outside bounding box or inside, we need to either extend it, or clip it
-        if self.bounding_box.is_inside(voronoi_vertex) {
-            // the vertex is the circumcenter of the triangle of edge a->b
-            // the vertex is on the a->b bisector line, thus we can take midpoint of a->b and vertex for the orthogonal projection
-            let edge_midpoint = Point { x: (site_a.x + site_b.x) / 2.0, y: (site_a.y + site_b.y) / 2.0 };
-            // clockwise rotation 90 degree from edge direction
-            let orthogonal = Point { x: site_b.y - site_a.y, y: site_a.x - site_b.x };
-
-            // take the projection and add it to the graph vertex list
-            let mut projected = self.bounding_box.project_ray_closest(&edge_midpoint, &orthogonal).expect("At least one intersection was expected");
-            projected.x *= 100.0;
-            projected.y *= 100.0;
-            let index = self.vertices.len();
-            self.vertices.push(projected);
-
-            ClipExtensionResult::Extended(index)
-        } else { // FIXME what happens if vertex is right on the edge, does it work?
-            debug_assert_ne!(voronoi_vertex_index, prev_voronoi_vertex_index, "Invariant violated. It was expected that every hull cell with first vertex outside bounding box has at least two vertices in its cell composition. extend_and_close_hull() is suppose to prevent this.");
-
-            // when vertex is outside bounding box, instead of "extending" vertex, we need to clip the line linking it with the previous cell vertex
-            // clip line linking previous and current vertices
-            let (new_first, new_previous) = self.clip_cell_edge(voronoi_vertex_index, prev_voronoi_vertex_index);
-            //debug_assert_ne!(EMPTY, new_first, "Edge must not be removed, otherwise it means the site for this cell is outside of the bounding box and this is not a valid input.");
-            ClipExtensionResult::Clipped(new_first, new_previous)
         }
     }
 
@@ -1236,47 +1191,4 @@ mod test {
             Point { x: 2.0, y: 0.1875 },
         ]);
     }
-
-    // #[test]
-    // fn extend_and_close_hull_single_degenerated_triangle() {
-    //     let mut builder = new_builder(vec![
-    //         Point { x: 0.0, y: 5.05 }, // vertex to be extended (circumcenter of the triangle below)
-    //     ]);
-    //     builder.calculate_corners();
-    //     let sites = vec![
-    //         Point { x: 0.0, y: 0.0 },
-    //         Point { x: 1.0, y: 0.1 },
-    //         Point { x: -1.0, y: 0.1 },
-    //     ];
-    //     let hull_sites = (0..sites.len()).collect();
-    //     let mut cells = vec![
-    //         vec![0],
-    //         vec![0],
-    //         vec![0],
-    //     ];
-    //     let site_to_leftmost_incoming_edge = vec![0, 1, 2];
-    //     builder.extend_and_close_hull(&sites, &hull_sites, &mut cells, &site_to_leftmost_incoming_edge);
-
-    //     assert_cell_vertex(&builder, &cells[0], "First cell", vec![
-    //         Point { x: 0.5, y: 0.0 },
-    //         Point { x: 2.0, y: -1.5 },
-    //         Point { x: 2.0, y: 2.0 },
-    //         Point { x: 0.5, y: 2.0 },
-    //     ]);
-
-    //     assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
-    //         Point { x: 0.5, y: 0.0 },
-    //         Point { x: 0.5, y: 2.0 },
-    //         Point { x: -2.0, y: 2.0 },
-    //         Point { x: -2.0, y: 0.0 },
-    //     ]);
-
-    //     assert_cell_vertex(&builder, &cells[2], "Second cell", vec![
-    //         Point { x: 0.5, y: 0.0 },
-    //         Point { x: -2.0, y: 0.0 },
-    //         Point { x: -2.0, y: -2.0 },
-    //         Point { x: 2.0, y: -2.0 },
-    //         Point { x: 2.0, y: -1.5 },
-    //     ]);
-    // }
 }

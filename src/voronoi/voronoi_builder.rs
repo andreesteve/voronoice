@@ -1,3 +1,5 @@
+use std::assert_eq;
+
 use super::{BoundingBox, ClipBehavior, Point, Voronoi};
 use super::utils::calculate_approximated_cetroid;
 

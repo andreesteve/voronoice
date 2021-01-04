@@ -329,7 +329,7 @@ impl State {
         //builder.generate_square_sites(2, 2);
         //builder.generate_triangle_sites();
         let mut builder = self.new_builder();
-        let range = (self.bounding_box.width() / 2.0, self.bounding_box.height() / 2.0);
+        let range = (-self.bounding_box.width() / 2.0, self.bounding_box.width() / 2.0);
 
         match self.site_type {
             SiteType::Random => builder.generate_random_sites(self.size, range, range),
