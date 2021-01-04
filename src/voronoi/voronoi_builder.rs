@@ -1,5 +1,3 @@
-use std::assert_eq;
-
 use super::{BoundingBox, ClipBehavior, Point, Voronoi};
 use super::utils::calculate_approximated_cetroid;
 
@@ -7,27 +5,27 @@ use super::utils::calculate_approximated_cetroid;
 pub struct VoronoiBuilder {
     sites: Option<Vec<Point>>,
     lloyd_iterations: usize,
-    bounding_box: Option<BoundingBox>,
+    bounding_box: BoundingBox,
     clip_behavior: ClipBehavior,
 }
 
 impl VoronoiBuilder {
-    pub fn set_bounding_box(&mut self, bounding_box: BoundingBox) -> &mut Self {
-        self.bounding_box.replace(bounding_box);
+    pub fn set_bounding_box(mut self, bounding_box: BoundingBox) -> Self {
+        self.bounding_box = bounding_box;
         self
     }
 
-    pub fn set_clip_behavior(&mut self, clip_behavior: ClipBehavior) -> &mut Self {
+    pub fn set_clip_behavior(mut self, clip_behavior: ClipBehavior) -> Self {
         self.clip_behavior = clip_behavior;
         self
     }
 
-    pub fn set_sites(&mut self, sites: Vec<Point>) -> &mut Self {
+    pub fn set_sites(mut self, sites: Vec<Point>) -> Self {
         self.sites.replace(sites);
         self
     }
 
-    pub fn set_lloyd_relaxation_iterations(&mut self, iterations: usize) -> &mut Self {
+    pub fn set_lloyd_relaxation_iterations(mut self, iterations: usize) -> Self {
         self.lloyd_iterations = iterations;
         self
     }
@@ -35,7 +33,7 @@ impl VoronoiBuilder {
     pub fn build(mut self) -> Option<Voronoi> {
         let v = Voronoi::new(
             self.sites.take().expect("Cannot build voronoi without sites. Call set_sites() first."),
-            self.bounding_box.take().unwrap_or(BoundingBox::new_centered_square(1.0)),
+            self.bounding_box.clone(),
             self.clip_behavior,
         );
 
@@ -51,9 +49,9 @@ impl VoronoiBuilder {
                     .collect::<Vec<Point>>();
 
                 // recompute new voronoi with sites after relaxation
-                let mut builder = Self::create_builder_from_voronoi_without_sites(&voronoi);
-                builder.set_sites(new_sites);
-                v = builder.build();
+                v = Self::create_builder_from_voronoi_without_sites(&voronoi)
+                    .set_sites(new_sites)
+                    .build();
             } else {
                 break;
             }
@@ -63,7 +61,14 @@ impl VoronoiBuilder {
     }
 
     #[allow(dead_code)]
-    pub fn generate_random_sites(&mut self, size: usize, x_range: (f64, f64), y_range: (f64, f64)) -> &mut Self {
+    pub fn generate_random_sites_constrained(self, size: usize) -> Self {
+        let x_range = (-self.bounding_box.width() / 2.0, self.bounding_box.width() / 2.0 );
+        let y_range = (-self.bounding_box.height() / 2.0, self.bounding_box.height() / 2.0 );
+        self.generate_random_sites(size, x_range, y_range)
+    }
+
+    #[allow(dead_code)]
+    pub fn generate_random_sites(self, size: usize, x_range: (f64, f64), y_range: (f64, f64)) -> Self {
         use rand::Rng;
         let mut rng = rand::thread_rng();
 
@@ -77,7 +82,7 @@ impl VoronoiBuilder {
     }
 
     #[allow(dead_code)]
-    pub fn generate_circle_sites(&mut self, size: usize) -> &mut Self {
+    pub fn generate_circle_sites(self, size: usize) -> Self {
         let len = size;
         let r = 1.0;
         let mut sites = vec![];
@@ -94,7 +99,7 @@ impl VoronoiBuilder {
     }
 
     #[allow(dead_code)]
-    pub fn generate_square_sites(&mut self, width: usize, height: usize) -> &mut Self {
+    pub fn generate_square_sites(self, width: usize, height: usize) -> Self {
         let mut sites = vec![];
         let fwidth = width as f64;
         let fheight = height as f64;
@@ -110,56 +115,9 @@ impl VoronoiBuilder {
         self.set_sites(sites)
     }
 
-    #[allow(dead_code)]
-    pub fn generate_triangle_sites(&mut self) -> &mut Self {
-        let mut sites = vec![];
-
-        sites.push(Point { x: -0.3, y: -0.3 });
-        sites.push(Point { x: 0.3, y: -0.3 });
-        sites.push(Point { x: 0.0, y: 0.3 });
-
-        sites.push(Point { x: -0.6, y: -0.6 });
-        sites.push(Point { x: 0.6, y: -0.6 });
-        sites.push(Point { x: 0.0, y: 0.6 });
-
-        sites.push(Point { x: -1.0, y: -1.0 });
-        sites.push(Point { x: -1.0, y: 1.0 });
-        sites.push(Point { x: 1.0, y: -1.0 });
-        sites.push(Point { x: 1.0, y: 1.0 });
-
-        self.set_sites(sites)
-    }
-
-    #[allow(dead_code)]
-    pub fn generate_special_case_1(&mut self) -> &mut Self {
-        let mut sites = vec![];
-
-        sites.push(Point { x: -0.5, y: -0.5 });
-        sites.push(Point { x: -0.5, y: 0.0 });
-        sites.push(Point { x: 0.0, y: 0.0 });
-        sites.push(Point { x: 0.5, y: -1.0 });
-
-        self.set_sites(sites)
-    }
-
-    /// When constraint to a (1, 1) bounding box, this creates a case in which two degenerated triangles share an edge. Both have extremelly distant circumcenters.
-    /// When clipped to the bounding box, it causes the voronoi cell to not contain the site. This is due to the approximation of circumcenter projection to the bounding box
-    /// instead of correctly clipping the edges instead.
-    #[allow(dead_code)]
-    pub fn generate_special_case_2(&mut self) -> &mut Self {
-        let mut sites = vec![];
-
-        sites.push(Point { x: 0.0, y: 0.0 });
-        sites.push(Point { x: 0.22, y: -0.75 });
-        sites.push(Point { x: 0.25, y: -0.83 });
-        sites.push(Point { x: -0.50, y: 0.0 });
-
-        self.set_sites(sites)
-    }
-
     fn create_builder_from_voronoi_without_sites(v: &Voronoi) -> Self {
         Self {
-            bounding_box: Some(v.bounding_box.clone()),
+            bounding_box: v.bounding_box.clone(),
             clip_behavior: v.clip_behavior,
             lloyd_iterations: 0,
             sites: None,

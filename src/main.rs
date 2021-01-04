@@ -3,10 +3,9 @@ use std::{collections::LinkedList, time::Instant};
 use bevy::{prelude::*, render::{camera::{Camera, PerspectiveProjection}, mesh::Indices, pipeline::PrimitiveTopology}};
 
 mod pipeline;
-mod voronoi;
 
 use pipeline::*;
-use crate::voronoi::*;
+use voronoi::*;
 
 fn main() {
     App::build()
@@ -237,16 +236,13 @@ fn move_camera(input: Res<Input<KeyCode>>, mut camera_query: Query<&mut Transfor
 
 #[derive(Debug)]
 enum SiteType {
-    Case1,
-    Case2,
     Random,
     Circle,
-    Triangle,
     Square
 }
 impl Default for SiteType {
     fn default() -> Self {
-        SiteType::Case2
+        SiteType::Random
     }
 }
 #[derive(Default)]
@@ -313,11 +309,8 @@ impl State {
     }
 
     fn new_builder(&self) -> VoronoiBuilder {
-        let mut builder = VoronoiBuilder::default();
-        builder
-            .set_bounding_box(self.bounding_box.clone());
-
-        builder
+        VoronoiBuilder::default()
+            .set_bounding_box(self.bounding_box.clone())
     }
 
     fn new_voronoi(&mut self, size: usize) {
@@ -331,12 +324,9 @@ impl State {
         let mut builder = self.new_builder();
         let range = (-self.bounding_box.width() / 2.0, self.bounding_box.width() / 2.0);
 
-        match self.site_type {
+        builder = match self.site_type {
             SiteType::Random => builder.generate_random_sites(self.size, range, range),
             SiteType::Circle => builder.generate_circle_sites(self.size),
-            SiteType::Case1 =>builder.generate_special_case_1(),
-            SiteType::Case2 =>builder.generate_special_case_2(),
-            SiteType::Triangle =>builder.generate_triangle_sites(),
             SiteType::Square => builder.generate_square_sites(self.size, self.size),
         };
 
@@ -346,22 +336,33 @@ impl State {
         self.replace(voronoi);
     }
 
+    fn refresh(&mut self) {
+        if let Some(v) = self.voronoi.as_ref() {
+            let vv = self.new_builder()
+                .set_sites(v.sites.clone())
+                .build();
+            self.replace(vv);
+        }
+    }
+
     fn add_site_to_voronoi(&mut self, site: Point) {
         let mut sites = self.voronoi.as_ref().unwrap().sites.clone();
         sites.push(site);
 
-        let mut builder = self.new_builder();
-        builder.set_sites(sites);
-        self.replace(builder.build());
+        let v = self.new_builder()
+            .set_sites(sites)
+            .build();
+        self.replace(v);
     }
 
     fn remove_site_to_voronoi(&mut self, site_index: usize) {
         let mut sites = self.voronoi.as_ref().unwrap().sites.clone();
         sites.remove(site_index);
 
-        let mut builder = self.new_builder();
-        builder.set_sites(sites);
-        self.replace(builder.build());
+        let v = self.new_builder()
+            .set_sites(sites)
+            .build();
+        self.replace(v);
     }
 }
 
@@ -402,11 +403,7 @@ fn handle_input(
         }
 
         respawn = true;
-        if let Some(v) = state.voronoi.as_ref() {
-            let mut builder : VoronoiBuilder = v.into();
-            builder.set_bounding_box(state.bounding_box.clone());
-            state.replace(builder.build());
-        }
+        state.refresh();
     } else if input.just_pressed(KeyCode::V) {
         state.show_boundingbox = !state.show_boundingbox;
     }
@@ -436,11 +433,10 @@ fn handle_input(
 
         respawn = true;
     } else if input.just_pressed(KeyCode::L) {
-            // run loyd relaxation
-            if let Some(existing_voronoi) = state.voronoi.as_ref() {
-            let mut builder: VoronoiBuilder = existing_voronoi.into();
-            builder.set_lloyd_relaxation_iterations(1);
-            state.replace(builder.build());
+        // run loyd relaxation
+        if let Some(existing_voronoi) = state.voronoi.as_ref() {
+            let builder: VoronoiBuilder = existing_voronoi.into();
+            state.replace(builder.set_lloyd_relaxation_iterations(1).build());
             respawn = true;
         }
     } else if input.just_pressed(KeyCode::C) {
@@ -452,12 +448,8 @@ fn handle_input(
         };
         println!("Clip behavior set to {:?}", state.clip_behavior);
 
-        if let Some(existing_voronoi) = state.voronoi.as_ref() {
-            let mut builder: VoronoiBuilder = existing_voronoi.into();
-            builder.set_clip_behavior(state.clip_behavior);
-            state.replace(builder.build());
-            respawn = true;
-        }
+        state.refresh();
+        respawn = true;
     }
 
     let mouse = mouse_query.iter().next().unwrap();
@@ -515,10 +507,7 @@ fn handle_input(
         state.site_type = match state.site_type {
             SiteType::Circle => SiteType::Random,
             SiteType::Random => SiteType::Square,
-            SiteType::Square => SiteType::Triangle,
-            SiteType::Triangle => SiteType::Case1,
-            SiteType::Case1 => SiteType::Case2,
-            SiteType::Case2 => SiteType::Circle,
+            SiteType::Square => SiteType::Circle,
         };
         respawn = true;
         state.new_voronoi(size);

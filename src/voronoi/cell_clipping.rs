@@ -1,7 +1,7 @@
 use std::{assert_eq, iter::once};
 use delaunator::{EMPTY, Triangulation};
 use utils::triangle_of_edge;
-use super::{ClipBehavior, Point, bounding_box::{self, *}, cell, edges_around_site_iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
+use super::{ClipBehavior, Point, bounding_box::{self, *}, edges_around_site_iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
 
 pub struct CellBuilder {
     vertices: Vec<Point>,
@@ -194,16 +194,16 @@ impl CellBuilder {
             })
             .collect::<Vec<usize>>();
 
+        if cell.len() < 2 {
+            // if 1 or 0 vertice in the box, this cell should be removed
+            return false;
+        }
+
         // if we finish with an open edge without entering back the box, handle it here
         if last_edge_removed {
             // we cycled the entire cell without entering back, this means we need to connect to the starting point
             open_edges[open_edges_count] = 0;
             open_edges_count += 1;
-        }
-
-        if cell.len() < 2 {
-            // if 1 or 0 vertice in the box, this cell should be removed
-            return false;
         }
 
         // if edges were removed, cell is open and needs to be closed
@@ -213,10 +213,9 @@ impl CellBuilder {
             // if we start iterating the cell on a vertex outside the box
             // the paring vertex to close this edge wraps around the vector (i.e. need to close last -> first)
             let (a, b) = if open_edges[i] == 0 {
-                (cell.len() - 1, open_edges[i])
+                (cell.len() - 1, 0)
             } else {
-                let v = i + open_edge_index_adjustment;
-                (open_edges[v] - 1, open_edges[v])
+                (open_edges[i] + open_edge_index_adjustment - 1, open_edges[i] + open_edge_index_adjustment)
             };
 
             // this many vertices were added between A and B, this means values were shifted right
@@ -321,8 +320,10 @@ impl CellBuilder {
     /// `a` and `b` are assumed to be ordered counter-clockwise.
     /// Returns how many new vertices were added.
     pub fn link_vertices_around_box_edge(&mut self, cell: &mut Vec<usize>, a: usize, b: usize) -> usize {
-        let pa = &self.vertices[cell[a]];
-        let pb = &self.vertices[cell[b]];
+        let ca = cell[a];
+        let cb = cell[b];
+        let pa = &self.vertices[ca];
+        let pb = &self.vertices[cb];
         let (mut a_bt, mut a_lr) = self.bounding_box.which_edge(pa);
         let (b_bt, b_lr) = self.bounding_box.which_edge(pb);
 
@@ -331,8 +332,15 @@ impl CellBuilder {
         debug_assert!(!(b_bt == BoundingBoxTopBottomEdge::None && b_lr == BoundingBoxLeftRightEdge::None), "Point b ({}) was not located on the box's edge", b);
 
         // short-circuit for case where a and b are on the same edge, and b is ahead of a, such case there is nothing to do
-        if (a_bt != BoundingBoxTopBottomEdge::None && a_bt == b_bt && pa.x > pb.x)
-        || (a_lr != BoundingBoxLeftRightEdge::None && a_lr == b_lr && pa.y > pb.y) {
+        if (match (a_bt, b_bt) {
+            (BoundingBoxTopBottomEdge::Bottom, BoundingBoxTopBottomEdge::Bottom) => pb.x > pa.x,
+            (BoundingBoxTopBottomEdge::Top, BoundingBoxTopBottomEdge::Top) => pa.x > pb.x,
+            (_, _) => false
+        } || match (a_lr, b_lr) {
+            (BoundingBoxLeftRightEdge::Right, BoundingBoxLeftRightEdge::Right) => pb.y > pa.y,
+            (BoundingBoxLeftRightEdge::Left, BoundingBoxLeftRightEdge::Left) => pa.y > pb.y,
+            (_, _) => false
+        }) {
             return 0;
         }
 
@@ -881,32 +889,106 @@ mod test {
     }
 
     #[test]
-    fn extend_vertex_non_degenerated_circumcenter() {
+    fn clip_polygon_cell_with_multiple_edges_removed() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 0.0, y: -5.0 },
+            Point { x: 1.0, y: -5.0 },
+            Point { x: 1.0, y: -1.0 },
+            Point { x: 5.0, y: -1.0 },
+            Point { x: 5.0, y: 0.0 },
+            Point { x: 1.0, y: 0.0 },
+            Point { x: 1.0, y: 5.0 },
+            Point { x: 0.0, y: 5.0 },
+        ]);
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
+        assert_eq!(keep_cell, true, "Intersection with box.");
+        assert_cell_vertex(&builder, &clipped_cell, "Incorrect clipping", vec![
+            Point { x: 0.0, y: -2.0 },
+            Point { x: 1.0, y: -2.0 },
+            Point { x: 1.0, y: -1.0 },
+            Point { x: 2.0, y: -1.0 },
+            Point { x: 2.0, y: 0.0 },
+            Point { x: 1.0, y: 0.0 },
+            Point { x: 1.0, y: 2.0 },
+            Point { x: 0.0, y: 2.0 },
+            Point { x: 0.0, y: 0.0 },
+        ]);
+    }
+
+    #[test]
+    fn clip_polygon_cell_with_multiple_edges_removed_and_coners_added() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 0.0, y: -5.0 },
+            Point { x: 5.0, y: -5.0 },
+            Point { x: 5.0, y: -1.0 },
+            Point { x: 1.0, y: -1.0 },
+            Point { x: 1.0, y: 0.0 },
+            Point { x: 5.0, y: 0.0 },
+            Point { x: 5.0, y: 5.0 },
+            Point { x: 0.0, y: 5.0 },
+        ]);
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
+        assert_eq!(keep_cell, true, "Intersection with box.");
+        assert_cell_vertex(&builder, &clipped_cell, "Incorrect clipping", vec![
+            Point { x: 0.0, y: -2.0 },
+            Point { x: 2.0, y: -2.0 },
+            Point { x: 2.0, y: -1.0 },
+            Point { x: 1.0, y: -1.0 },
+            Point { x: 1.0, y: 0.0 },
+            Point { x: 2.0, y: 0.0 },
+            Point { x: 2.0, y: 2.0 },
+            Point { x: 0.0, y: 2.0 },
+            Point { x: 0.0, y: 0.0 },
+        ]);
+    }
+
+    #[test]
+    fn clip_polygon_cell_with_multiple_edges_removed_and_coners_added_starting_edge_outside() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.0, y: 5.0 },
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 0.0, y: -5.0 },
+            Point { x: 5.0, y: -5.0 },
+            Point { x: 5.0, y: -1.0 },
+            Point { x: 1.0, y: -1.0 },
+            Point { x: 1.0, y: 0.0 },
+            Point { x: 5.0, y: 0.0 },
+            Point { x: 5.0, y: 5.0 },
+        ]);
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
+        assert_eq!(keep_cell, true, "Intersection with box.");
+        assert_cell_vertex(&builder, &clipped_cell, "Incorrect clipping", vec![
+            Point { x: 0.0, y: 2.0 },
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 0.0, y: -2.0 },
+            Point { x: 2.0, y: -2.0 },
+            Point { x: 2.0, y: -1.0 },
+            Point { x: 1.0, y: -1.0 },
+            Point { x: 1.0, y: 0.0 },
+            Point { x: 2.0, y: 0.0 },
+            Point { x: 2.0, y: 2.0 },
+        ]);
+    }
+
+    #[test]
+    fn extend_vertex_test() {
         let mut builder = new_builder(vec![
             Point { x: 0.5, y: 0.0 }, // vertex to be extended
         ]);
 
-        let r = builder.extend_or_clip_vertex(0, 0, &Point { x: 1.0, y: 1.0 }, &Point { x: 0.0, y: 1.0 });
-        if let ClipExtensionResult::Extended(ext) = r {
-            assert_eq!(Point { x: 0.5, y: 2.0 }, builder.vertices[ext], "Extension expected to be orthogonal to a -> b and on the bounding box edge.");
-        } else {
-            panic!("Expected extension. Found: {:?}", r);
-        }
-    }
-
-    #[test]
-    fn extend_vertex_degenerated_circumcenter() {
-        let mut builder = new_builder(vec![
-            Point { x: 0.0, y: 5.0 }, // vertex to be extended
-            Point { x: 0.0, y: 0.0 },
-        ]);
-        let r = builder.extend_or_clip_vertex(0, 1, &Point { x: 1.4, y: 0.0 }, &Point { x: 0.0, y: 0.0 });
-        if let ClipExtensionResult::Clipped(start, end) = r {
-            assert_eq!(Point { x: 0.0, y: 2.0 }, builder.vertices[start], "Wrong clip.");
-            assert_eq!(Point { x: 0.0, y: 0.0 }, builder.vertices[end], "Wrong clip.");
-        } else {
-            panic!("Expected clipping. Found: {:?}", r);
-        }
+        let ext = builder.extend_vertex(&Point { x: 1.0, y: 1.0 }, &Point { x: 0.0, y: 1.0 }, 1.0);
+        assert_eq!(Point { x: 0.5, y: 2.0 }, builder.vertices[ext], "Extension expected to be orthogonal to a -> b and on the bounding box edge.");
     }
 
     #[test]
