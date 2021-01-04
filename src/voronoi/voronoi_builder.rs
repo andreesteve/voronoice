@@ -1,22 +1,22 @@
-use super::{BoundingBox, ClipBehavior, HullBehavior, Point, Voronoi};
+use super::{BoundingBox, ClipBehavior, Point, Voronoi};
 use super::utils::calculate_approximated_cetroid;
 
 #[derive(Default)]
 pub struct VoronoiBuilder {
     sites: Option<Vec<Point>>,
-    hull_behavior: HullBehavior,
     lloyd_iterations: usize,
-    bounding_box: Option<BoundingBox>
+    bounding_box: Option<BoundingBox>,
+    clip_behavior: ClipBehavior,
 }
 
 impl VoronoiBuilder {
-    pub fn set_hull_behavior(&mut self, behavior: HullBehavior) -> &mut Self {
-        self.hull_behavior = behavior;
+    pub fn set_bounding_box(&mut self, bounding_box: BoundingBox) -> &mut Self {
+        self.bounding_box.replace(bounding_box);
         self
     }
 
-    pub fn set_bounding_box(&mut self, bounding_box: BoundingBox) -> &mut Self {
-        self.bounding_box.replace(bounding_box);
+    pub fn set_clip_behavior(&mut self, clip_behavior: ClipBehavior) -> &mut Self {
+        self.clip_behavior = clip_behavior;
         self
     }
 
@@ -34,8 +34,7 @@ impl VoronoiBuilder {
         let v = Voronoi::new(
             self.sites.take().expect("Cannot build voronoi without sites. Call set_sites() first."),
             self.bounding_box.take().unwrap_or(BoundingBox::new_centered_square(1.0)),
-            self.hull_behavior,
-            ClipBehavior::Clip
+            self.clip_behavior,
         );
 
         self.perform_lloyd_relaxation(v)
@@ -158,9 +157,10 @@ impl VoronoiBuilder {
 
     fn create_builder_from_voronoi_without_sites(v: &Voronoi) -> Self {
         Self {
-            hull_behavior: v.hull_behavior,
             bounding_box: Some(v.bounding_box.clone()),
-            ..Default::default()
+            clip_behavior: v.clip_behavior,
+            lloyd_iterations: 0,
+            sites: None,
         }
     }
 }

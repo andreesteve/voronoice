@@ -68,11 +68,11 @@ impl BoundingBox {
         point.x.abs() <= self.top_right.x && point.y.abs() <= self.top_right.y
     }
 
-    /// Same as inside, but return false if point is on the box edge.
-    #[inline]
-    pub fn is_exclusively_inside(&self, point: &Point) -> bool {
-        point.x.abs() < self.top_right.x && point.y.abs() < self.top_right.y
-    }
+    // /// Same as inside, but return false if point is on the box edge.
+    // #[inline]
+    // pub fn is_exclusively_inside(&self, point: &Point) -> bool {
+    //     point.x.abs() < self.top_right.x && point.y.abs() < self.top_right.y
+    // }
 
     /// Returns which edge, if any, the given `point` is located.
     #[inline]

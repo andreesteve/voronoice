@@ -253,10 +253,10 @@ impl Default for SiteType {
 struct State {
     voronoi_opts: VoronoiMeshOptions,
     voronoi: Option<Voronoi>,
+    clip_behavior: ClipBehavior,
     size: usize,
     undo_list: LinkedList<Voronoi>,
     forward_list: LinkedList<Voronoi>,
-    hull_behavior: HullBehavior,
     bounding_box: BoundingBox,
     site_type: SiteType,
     show_boundingbox: bool
@@ -309,14 +309,12 @@ impl State {
         self.undo_list.clear();
         self.forward_list.clear();
         self.bounding_box = BoundingBox::new_centered_square(2.0);
-        self.show_boundingbox = true;
-        self.hull_behavior = HullBehavior::None;
+        self.show_boundingbox = false;
     }
 
     fn new_builder(&self) -> VoronoiBuilder {
         let mut builder = VoronoiBuilder::default();
         builder
-            .set_hull_behavior(self.hull_behavior)
             .set_bounding_box(self.bounding_box.clone());
 
         builder
@@ -389,11 +387,17 @@ fn handle_input(
     }
 
     if input.just_pressed(KeyCode::PageUp) || input.just_pressed(KeyCode::PageDown) {
+        let increment = if input.pressed(KeyCode::LShift) {
+            1.0
+        } else {
+            0.1
+        };
+
         if input.just_pressed(KeyCode::PageUp) {
-            let size = state.bounding_box.width() + 0.1;
+            let size = state.bounding_box.width() + increment;
             state.bounding_box = BoundingBox::new(state.bounding_box.center().clone(), size, size);
         } else if input.just_pressed(KeyCode::PageDown) {
-            let size = (state.bounding_box.width() - 0.1).max(0.1);
+            let size = state.bounding_box.width().max(increment + 0.1) -increment;
             state.bounding_box = BoundingBox::new(state.bounding_box.center().clone(), size, size);
         }
 
@@ -439,17 +443,18 @@ fn handle_input(
             state.replace(builder.build());
             respawn = true;
         }
-    } else if input.just_pressed(KeyCode::H) {
+    } else if input.just_pressed(KeyCode::C) {
         // change hull behavior
-        state.hull_behavior = match state.hull_behavior {
-            HullBehavior::None => HullBehavior::ExtendAndClose,
-            HullBehavior::ExtendAndClose => HullBehavior::None
+        state.clip_behavior = match state.clip_behavior {
+            ClipBehavior::Clip => ClipBehavior::None,
+            ClipBehavior::None => ClipBehavior::RemoveSitesOutsideBoundingBoxOnly,
+            ClipBehavior::RemoveSitesOutsideBoundingBoxOnly => ClipBehavior::Clip
         };
-        println!("Hull behavior set to {:?}", state.hull_behavior);
+        println!("Clip behavior set to {:?}", state.clip_behavior);
 
         if let Some(existing_voronoi) = state.voronoi.as_ref() {
             let mut builder: VoronoiBuilder = existing_voronoi.into();
-            builder.set_hull_behavior(state.hull_behavior);
+            builder.set_clip_behavior(state.clip_behavior);
             state.replace(builder.build());
             respawn = true;
         }
@@ -554,7 +559,7 @@ fn handle_input(
     }
 
     let updates: [String; 5] = [
-        format!("[H] Hull mode: {:?}", state.hull_behavior),
+        format!("[C] Clip mode: {:?}", state.clip_behavior),
         format!("[P] Voronoi mesh render mode: {:?}", state.voronoi_opts.voronoi_topoloy),
         format!("[PgUp/PgDown] Bounding box: {:.2}", state.bounding_box.width()),
         format!("[Home] Site type: {:?}", state.site_type),
