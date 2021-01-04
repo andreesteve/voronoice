@@ -1,7 +1,7 @@
-use std::iter::once;
+use std::{assert_eq, iter::once};
 use delaunator::{EMPTY, Triangulation};
 use utils::triangle_of_edge;
-use super::{ClipBehavior, Point, bounding_box::{self, *}, edges_around_site_iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
+use super::{ClipBehavior, Point, bounding_box::{self, *}, cell, edges_around_site_iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
 
 pub struct CellBuilder {
     vertices: Vec<Point>,
@@ -70,7 +70,7 @@ impl CellBuilder {
                 let p = i;
                 i += 1;
                 // FIX ME: if hull is not closed, this will fail because it expects cells to be closed
-                if triangulation.hull.contains(&p) { continue };
+                //if triangulation.hull.contains(&p) { continue };
 
                 self.clip_and_close_cell(cell);
 
@@ -97,7 +97,9 @@ impl CellBuilder {
             let orthogonal = Point { x: site_b.y - site_a.y, y: site_a.x - site_b.x };
 
             // take the projection and add it to the graph vertex list
-            let projected = self.bounding_box.project_ray_closest(&edge_midpoint, &orthogonal).expect("At least one intersection was expected");
+            let mut projected = self.bounding_box.project_ray_closest(&edge_midpoint, &orthogonal).expect("At least one intersection was expected");
+            projected.x *= 100.0;
+            projected.y *= 100.0;
             let index = self.vertices.len();
             self.vertices.push(projected);
 
@@ -108,137 +110,59 @@ impl CellBuilder {
             // when vertex is outside bounding box, instead of "extending" vertex, we need to clip the line linking it with the previous cell vertex
             // clip line linking previous and current vertices
             let (new_first, new_previous) = self.clip_cell_edge(voronoi_vertex_index, prev_voronoi_vertex_index);
-            debug_assert_ne!(EMPTY, new_first, "Edge must not be removed, otherwise it means the site for this cell is outside of the bounding box and this is not a valid input.");
+            //debug_assert_ne!(EMPTY, new_first, "Edge must not be removed, otherwise it means the site for this cell is outside of the bounding box and this is not a valid input.");
             ClipExtensionResult::Clipped(new_first, new_previous)
         }
     }
 
+    /// Extend, towards the bounding box edge, the `voronoi_vertex` orthogonally to the Delauney triangle edge represented by `a` -> `b`.
+    /// Creates the new vertex on the bounding box edge and returns it index on the `vertices` collection.
+    fn extend_vertex(&mut self, site_a: &Point, site_b: &Point, scale: f64) -> usize {
+        // the vertex is the circumcenter of the triangle of edge a->b
+        // the vertex is on the a->b bisector line, thus we can take midpoint of a->b and vertex for the orthogonal projection
+        let edge_midpoint = Point { x: (site_a.x + site_b.x) / 2.0, y: (site_a.y + site_b.y) / 2.0 };
+        // clockwise rotation 90 degree from edge direction
+        let orthogonal = Point { x: site_b.y - site_a.y, y: site_a.x - site_b.x };
+
+        let projected = Point { x: edge_midpoint.x + (scale * orthogonal.x), y: edge_midpoint.y + (scale * orthogonal.y) };
+        let index = self.vertices.len();
+        self.vertices.push(projected);
+
+        index
+    }
+
     fn extend_and_close_hull(&mut self, sites: &Vec<Point>, hull_sites: &Vec<usize>, cells: &mut Vec<Vec<usize>>) {
-        if sites.len() <= 3 {
-            // a single delauney triangle (3 sites) and all sites have a single same vertex
-            // the degerated case (single triangle with a single vertex outside the bounding box) is not handlded below, so we check it here
-            if !self.bounding_box.is_inside(&self.vertices[*cells.first().unwrap().first().unwrap()]) {
-                println!("Three sites forming a degenerated triangle not supported yet on hull closing step.");
-                return;
-            }
+        assert_eq!(true, hull_sites.len() > 2, "A valid triangulation has at least 3 sites.");
+
+        // For each site on the hull, extend its first vertex beyond the bounding box
+        // Add this extended vertex to the cell, and the previous cell extended vertex as well
+        // Thus closing the cell. When clip logic runs for this cell, it will clip the extensions as needed
+        // Set a extension scale to be more than the bounding box diagonal, to make sure we get nice clipped corners
+        let scale = 2.0 * self.bounding_box.width() * self.bounding_box.height();
+
+        // handle first
+        let &last_site = hull_sites.last().expect("");
+        let &first_site = hull_sites.first().expect("");
+        let last_site_pos = &sites[last_site];
+        let mut site_pos = &sites[first_site];
+        let last_size_ext = self.extend_vertex(last_site_pos, site_pos, scale);
+        let mut prev_ext = last_size_ext;
+        let mut site = first_site;
+
+        // skip last to make sure we can always read next
+        for &next_site in hull_sites.iter().skip(1) {
+            let next_site_pos = &sites[next_site];
+            let ext = self.extend_vertex(site_pos, next_site_pos, scale);
+            cells[site].push(prev_ext);
+            cells[site].push(ext);
+            prev_ext = ext;
+            site_pos = next_site_pos;
+            site = next_site;
         }
 
-        // walk sites on the hull edges (counter-clockwise)
-        let hull_vertex_iter = hull_sites.iter().map(|site| (*site, &sites[*site]));
-        let hull_next_vertex_iter = hull_vertex_iter.clone().cycle().skip(1);
-
-        // each hull site has two vertices to be extended
-        // here we model that each site extended one, and borrows the previous site extension
-        // handle last -> first site edge here - a valid triangulation has at minimum three sites
-        let last_index = hull_sites.len() - 1;
-        let last_site = hull_sites[last_index];
-
-        // get voronoi vertex and its precedent in the cell that needs to be extended and extend it (circumcenter for the triangle)
-        // the first vertex indexed in the cell is the circumcenter of the triangle associated with the leftmost incoming edge to the site
-        // the last vertex indexed is the same, but for the preceding site (if both are the same, there are only 3 sites in the graph)
-        let last_cell = &cells[last_site];
-        let first_cell_vertex = *last_cell.first().expect("All cells are expected to have at least one vertex.");
-        let prev_cell_vertex = *last_cell.last().expect("All cells are expected to have at least one vertex.");
-        let mut prev_result = self.extend_or_clip_vertex(first_cell_vertex, prev_cell_vertex, &sites[last_site], &sites[hull_sites[0]]);
-        // TODO handle replace for the first one
-
-        // this will iterate thorugh all the edges: first -> second, second -> thrid, ...,  last -> first
-        hull_vertex_iter.zip(hull_next_vertex_iter)
-            .for_each(|((a_site, a_point), (_, b_point))| {
-                let cell = &mut cells[a_site];
-
-                // compute own extension
-                let first_cell_vertex = *cell.first().expect("All cells are expected to have at least one vertex.");
-                let prev_cell_vertex = *cell.last().expect("All cells are expected to have at least one vertex.");
-                let result = self.extend_or_clip_vertex(first_cell_vertex, prev_cell_vertex, a_point, b_point);
-
-                // vertex order: non ext vertices -> prev ext -> current ext
-                match (&prev_result, &result) {
-                    (ClipExtensionResult::Extended(prev_ext), ClipExtensionResult::Extended(ext)) => {
-                        // ext is the new index for the extended vertex
-                        cell.push(*prev_ext);
-                        cell.push(*ext);
-
-                        // need to close cell - prev ext -> my ext
-                        self.link_vertices_around_box_edge(cell, cell.len() - 2, cell.len() - 1);
-                    },
-
-                    (ClipExtensionResult::Extended(prev_ext), ClipExtensionResult::Clipped(start, end)) => {
-                        // edge was clipped, need to update cell map
-                        cell[0] = *start;
-                        // previous cell was extended, this means our edge must have been clipped in the start only
-                        debug_assert_eq!(*end, prev_cell_vertex, "If cell vertex -> prev vertex was clipped in both the start and end, it means the previous cell first vertex is outside the bounding box; but it was extended on previous iteration. Extension only happens if vertex is inside bounding box (no need for clipping).");
-
-                        // need to close the cell: prev ext -> my vertex
-                        cell.push(*prev_ext);
-                        self.link_vertices_around_box_edge(cell, cell.len() - 1, 0);
-                    },
-
-                    (ClipExtensionResult::Clipped(_, _), ClipExtensionResult::Extended(ext)) => {
-                        // previous cell vertex was clipped, so we need to clip our edge linking it
-                        let (start, end) = self.clip_cell_edge(first_cell_vertex, prev_cell_vertex);
-
-                        // previous cell was clipped, we have been extended, this means we are expecting a single clip in the end
-                        debug_assert_eq!(start, first_cell_vertex, "Current cell vertex was extended, it must be inside bounding box. I could not have been clipped at start.");
-                        *cell.last_mut().expect("All cells have at least one vertex") = end;
-
-                        // add extension vertex to current cell
-                        cell.push(*ext);
-
-                        // need to close the cell: clipped end -> my ext
-                        self.link_vertices_around_box_edge(cell, cell.len() - 2, cell.len() - 1);
-                    },
-
-                    (ClipExtensionResult::Clipped(_, _), ClipExtensionResult::Clipped(start, end)) => {
-                        debug_assert_ne!(*end, EMPTY, "Previous cell was clipped, this means its first vertex (current's last) is outside the bounding box. Clip must occur in both start and end");
-                        debug_assert_ne!(*start, EMPTY, "Previous cell was clipped, this means its first vertex (current's last) is outside the bounding box. Clip must occur in both start and end");
-
-                        // edge was clipped, need to update cell map
-                        cell[0] = *start;
-                        *cell.last_mut().expect("All cells have at least one vertex") = *end;
-
-                        // need to close the cell: start -> end
-                        self.link_vertices_around_box_edge(cell, cell.len() - 1, 0);
-                    },
-                };
-
-                // FIXME: refactor link vertices function to return vertices instead of adding to the cell directly, we could avoid vector reallocation this way
-
-                prev_result = result;
-            });
-
-            // // FIXME: there are two extensions per site, I am doing just one here
-            // // cells on the hull need to have its edges extended to the edges of the box
-            // if is_hull_site && !cell.is_empty() && (hull_behavior == HullBehavior::Extended || hull_behavior == HullBehavior::Closed)  {
-            //     // during clipping, cells are shifted to the left, with previously first entry becoming last
-            //     // this happens if the cell is closed before clipping, since hull cells are open before clipping they are not shiffted
-            //     let index_of_cell_to_extend = 0;
-            //     // this is the vertex we will extend from
-            //     let cell_vertex_to_extend = &circumcenters[cell[index_of_cell_to_extend]];
-
-            //     // FIX ME: if the circumcenter is outside the box, the extension needs to be projected onto the far side
-            //     // if vertex is outside bounding box or on the box's edge, no need to extend it
-            //     if bounding_box.is_exclusively_inside(cell_vertex_to_extend) {
-            //         // get the point that the edge comes from
-            //         let source_site = triangulation.triangles[leftmost_edge];
-            //         let source_point = &sites[source_site];
-            //         let target_point = &sites[site];
-
-            //         // the line extension must be perpendicular to the hull edge
-            //         // get edge direction, rotated by 90 degree counterclock-wise as to point towards the "outside" (x -> y, y -> -x)
-            //         let orthogonal = Point { x: source_point.y - target_point.y, y: target_point.x - source_point.x };
-
-            //         // get voronoi vertex that needs to be extended and extend it
-            //         let projected = bounding_box.project_ray_closest(cell_vertex_to_extend, &orthogonal).expect("Expected intersection with box");
-
-            //         // add extended vertex as a "fake" circumcenter
-            //         let vertex_index = circumcenters.len();
-            //         // this point is orthogonally extended towards the outside from the current cell[0], thus it needs to come in first
-            //         // be keep vertices in counterclockwise order
-            //         cell.insert(index_of_cell_to_extend, vertex_index);
-            //         circumcenters.push(projected);
-            //     }
-            // }
+        // handle skipped
+        cells[last_site].push(prev_ext);
+        cells[last_site].push(last_size_ext);
     }
 
     /// Cell is assumed to be closed.
@@ -314,6 +238,13 @@ impl CellBuilder {
                 vertex
             })
             .collect::<Vec<usize>>();
+
+        // if we finish with an open edge without entering back the box, handle it here
+        if last_edge_removed {
+            // we cycled the entire cell without entering back, this means we need to connect to the starting point
+            open_edges[open_edges_count] = 0;
+            open_edges_count += 1;
+        }
 
         if cell.len() < 2 {
             // if 1 or 0 vertice in the box, this cell should be removed
@@ -622,7 +553,7 @@ mod test {
         // is counter-clockwise? https://stackoverflow.com/questions/1165647/how-to-determine-if-a-list-of-polygon-points-are-in-clockwise-order
         let area = points.iter().zip(points.iter().cycle().skip(1)).fold(0.0, |acc, (a, b)| {
                 acc + ((b.x - a.x) * (b.y + a.y))
-            });
+        });
         assert_eq!(true, area < 0.0, "Area of the polygon must be less than 0 for it to be counter-clockwise ordered. Area: {}. {}", area, message);
     }
 
@@ -943,7 +874,6 @@ mod test {
             Point { x: 10.0, y: 0.0 },
             Point { x: 10.0, y: -3.0 },
             Point { x: 15.0, y: 0.0 },
-
         ]);
         let cell: Vec<usize> = (0..builder.vertices.len()).collect();
         let mut clipped_cell = cell.clone();
@@ -951,6 +881,48 @@ mod test {
         let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
         assert_eq!(keep_cell, false, "No intersection with box, all points outside, should not keep the cell.");
         assert_same_elements(&clipped_cell, &vec![], "Clipped cell incorrect indices.");
+    }
+
+    #[test]
+    fn clip_square_cell_with_two_edges_outside_box() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 5.0, y: 0.0 },
+            Point { x: 5.0, y: 5.0 },
+            Point { x: 0.0, y: 5.0 },
+        ]);
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
+        assert_eq!(keep_cell, true, "Intersection with box.");
+        assert_cell_vertex(&builder, &clipped_cell, "Incorrect clipping", vec![
+            Point { x: 2.0, y: 0.0 },
+            Point { x: 2.0, y: 2.0 },
+            Point { x: 0.0, y: 2.0 },
+            Point { x: 0.0, y: 0.0 },
+        ]);
+    }
+
+    #[test]
+    fn clip_square_cell_with_two_edges_outside_box_start_vertex_outside() {
+        let mut builder = new_builder(vec![
+            Point { x: 0.0, y: 5.0 },
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 5.0, y: 0.0 },
+            Point { x: 5.0, y: 5.0 },
+        ]);
+        let cell: Vec<usize> = (0..builder.vertices.len()).collect();
+        let mut clipped_cell = cell.clone();
+        builder.calculate_corners();
+        let keep_cell = builder.clip_and_close_cell(&mut clipped_cell);
+        assert_eq!(keep_cell, true, "Intersection with box.");
+        assert_cell_vertex(&builder, &clipped_cell, "Incorrect clipping", vec![
+            Point { x: 0.0, y: 2.0 },
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 2.0, y: 0.0 },
+            Point { x: 2.0, y: 2.0 },
+        ]);
     }
 
     #[test]
