@@ -492,14 +492,17 @@ mod test {
         assert_eq!(0, actual.iter().copied().zip(expected.iter().copied()).filter(|(a,b)| a != b).collect::<Vec<(usize, usize)>>().len(), "Vectors have differing elements. Actual: {:?}. Expected: {:?}. {}", actual, expected, message);
     }
 
-    fn assert_cell_vertex(builder: &CellBuilder, cell: &Vec<usize>, message: &str, expected_vertices: Vec<Point>) {
+    fn assert_cell_vertex_without_bounds(builder: &CellBuilder, cell: &Vec<usize>, message: &str, expected_vertices: Vec<Point>) {
         let cell_vertices = cell.iter().map(|c| builder.vertices[*c].clone()).collect::<Vec<Point>>();
         assert_eq!(expected_vertices.len() , cell.len(), "Cell vertex count is incorrect. Expected {:#?}, found {:#?}. {}", expected_vertices, cell_vertices, message);
 
         cell_vertices.iter().enumerate().zip(expected_vertices.iter()).for_each(|((index, actual), expected)| {
             assert_eq!(expected, actual, "Invalid vertex for position {}. Expected cell vertices {:#?}, found {:#?} {}", index, expected_vertices, cell_vertices, message);
         });
+    }
 
+    fn assert_cell_vertex(builder: &CellBuilder, cell: &Vec<usize>, message: &str, expected_vertices: Vec<Point>) {
+        assert_cell_vertex_without_bounds(builder, cell, message, expected_vertices);
         assert_cell_consistency(cell, builder, message);
     }
 
@@ -992,134 +995,7 @@ mod test {
     }
 
     #[test]
-    fn extend_and_close_hull_single_right_angle_triangle() {
-        let mut builder = new_builder(vec![
-            Point { x: 0.5, y: 0.5 }, // vertex to be extended
-        ]);
-        builder.calculate_corners();
-        let sites = vec![
-            Point { x: 1.0, y: 1.0 },
-            Point { x: 0.0, y: 1.0 },
-            Point { x: 0.0, y: 0.0 },
-        ];
-        assert_eq!(builder.vertices[0], utils::cicumcenter(&sites[0], &sites[1], &sites[2]), "I got the circumcenter wrong.");
-        let hull_sites = (0..sites.len()).collect();
-        let mut cells = vec![
-            vec![0],
-            vec![0],
-            vec![0],
-        ];
-        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells);
-
-        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
-            Point { x: 0.5, y: 0.5 },
-            Point { x: 2.0, y: -1.0 },
-            Point { x: 2.0, y: 2.0 },
-            Point { x: 0.5, y: 2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
-            Point { x: 0.5, y: 0.5 },
-            Point { x: 0.5, y: 2.0 },
-            Point { x: -2.0, y: 2.0 },
-            Point { x: -2.0, y: 0.5 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
-            Point { x: 0.5, y: 0.5 },
-            Point { x: -2.0, y: 0.5 },
-            Point { x: -2.0, y: -2.0 },
-            Point { x: 2.0, y: -2.0 },
-            Point { x: 2.0, y: -1.0 },
-        ]);
-    }
-
-    #[test]
-    fn extend_and_close_hull_single_degenerated_triangle() {
-        let mut builder = new_builder(vec![
-            Point { x: 0.5, y: -0.5 }, // vertex to be extended
-        ]);
-        builder.calculate_corners();
-        let sites = vec![
-            Point { x: 1.0, y: 1.0 },
-            Point { x: 0.0, y: 1.0 },
-            Point { x: -1.0, y: 0.0 },
-        ];
-        assert_eq!(builder.vertices[0], utils::cicumcenter(&sites[0], &sites[1], &sites[2]), "I got the circumcenter wrong.");
-        let hull_sites = (0..sites.len()).collect();
-        let mut cells = vec![
-            vec![0],
-            vec![0],
-            vec![0],
-        ];
-        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells);
-
-        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
-            Point { x: 0.5, y: -0.5 },
-            Point { x: 1.25, y: -2.0 },
-            Point { x: 2.0, y: -2.0 },
-            Point { x: 2.0, y: 2.0 },
-            Point { x: 0.5, y: 2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
-            Point { x: 0.5, y: -0.5 },
-            Point { x: 0.5, y: 2.0 },
-            Point { x: -2.0, y: 2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
-            Point { x: 0.5, y: -0.5 },
-            Point { x: -2.0, y: 2.0 },
-            Point { x: -2.0, y: -2.0 },
-            Point { x: 1.25, y: -2.0 },
-        ]);
-    }
-
-    #[test]
-    fn extend_and_close_hull_single_degenerated_triangle_circumcenter_outside_box() {
-        let mut builder = new_builder(vec![
-            Point { x: 1.625, y: -4.375 }, // vertex to be extended
-        ]);
-        builder.calculate_corners();
-        let sites = vec![
-            Point { x: 1.5, y: 1.0 },
-            Point { x: -1.5, y: 0.0 },
-            Point { x: 0.0, y: 0.75 },
-        ];
-        assert_eq!(builder.vertices[0], utils::cicumcenter(&sites[0], &sites[1], &sites[2]), "I got the circumcenter wrong.");
-        let hull_sites = (0..sites.len()).collect();
-        let mut cells = vec![
-            vec![0],
-            vec![0],
-            vec![0],
-        ];
-        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells);
-
-        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
-            Point { x: 1.625, y: -4.375 },
-            Point { x: 1.25, y: -2.0 },
-            Point { x: 2.0, y: -2.0 },
-            Point { x: 2.0, y: 2.0 },
-            Point { x: 0.5, y: 2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
-            Point { x: 0.5, y: -0.5 },
-            Point { x: 0.5, y: 2.0 },
-            Point { x: -2.0, y: 2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
-            Point { x: 0.5, y: -0.5 },
-            Point { x: -2.0, y: 2.0 },
-            Point { x: -2.0, y: -2.0 },
-            Point { x: 1.25, y: -2.0 },
-        ]);
-    }
-
-    #[test]
-    fn extend_and_close_hull_single_acute_triangle() {
+    fn extend_and_close_hull_test() {
         let mut builder = new_builder(vec![
             Point { x: 0.5, y: 0.625 }, // vertex to be extended
         ]);
@@ -1138,139 +1014,22 @@ mod test {
         ];
         builder.extend_and_close_hull(&sites, &hull_sites, &mut cells);
 
-        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
+        assert_cell_vertex_without_bounds(&builder, &cells[0], "First cell", vec![
             Point { x: 0.5, y: 0.625 },
-            Point { x: 2.0, y: -0.125 },
-            Point { x: 2.0, y: 2.0 },
-            Point { x: 0.5, y: 2.0 },
+            Point { x: 32.75, y: -15.5 },
+            Point { x: 0.5, y: 33.0 },
         ]);
 
-        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
+        assert_cell_vertex_without_bounds(&builder, &cells[1], "Second cell", vec![
             Point { x: 0.5, y: 0.625 },
-            Point { x: 0.5, y: 2.0 },
-            Point { x: -2.0, y: 2.0 },
-            Point { x: -2.0, y: -0.625 },
+            Point { x: 0.5, y: 33.0 },
+            Point { x: -31.75, y: -15.5 },
         ]);
 
-        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
+        assert_cell_vertex_without_bounds(&builder, &cells[2], "Third cell", vec![
             Point { x: 0.5, y: 0.625 },
-            Point { x: -2.0, y: -0.625 },
-            Point { x: -2.0, y: -2.0 },
-            Point { x: 2.0, y: -2.0 },
-            Point { x: 2.0, y: -0.125 },
-        ]);
-    }
-
-    #[test]
-    fn extend_and_close_hull_two_triangles() {
-        let mut builder = new_builder(vec![
-            Point { x: 0.0, y: 0.0 },
-            Point { x: 0.25, y: -0.25 },
-        ]);
-        builder.calculate_corners();
-        let sites = vec![
-            Point { x: 1.0, y: 1.0 },
-            Point { x: -1.0, y: 1.0 },
-            Point { x: -1.0, y: -1.0 },
-            Point { x: 1.5, y: -1.0 },
-        ];
-        // let t = delaunator::triangulate(&sites).unwrap();
-        // println!("{:#?}", t.triangles);
-        // println!("{:#?}", t.halfedges);
-        let hull_sites = (0..sites.len()).collect();
-        let mut cells = vec![
-            vec![0, 1],
-            vec![0],
-            vec![1, 0],
-            vec![1],
-        ];
-        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells);
-
-        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
-            Point { x: 0.0, y: 0.0 },
-            Point { x: 0.25, y: -0.25 },
-            Point { x: 2.0, y: 0.1875 },
-            Point { x: 2.0, y: 2.0 },
-            Point { x: 0.0, y: 2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
-            Point { x: 0.0, y: 0.0 },
-            Point { x: 0.0, y: 2.0 },
-            Point { x: -2.0, y: 2.0 },
-            Point { x: -2.0, y: 0.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
-            Point { x: 0.25, y: -0.25 },
-            Point { x: 0.0, y: 0.0 },
-            Point { x: -2.0, y: 0.0 },
-            Point { x: -2.0, y: -2.0 },
-            Point { x: 0.25, y: -2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[3], "Forth cell", vec![
-            Point { x: 0.25, y: -0.25 },
-            Point { x: 0.25, y: -2.0 },
-            Point { x: 2.0, y: -2.0 },
-            Point { x: 2.0, y: 0.1875 },
-        ]);
-    }
-
-    #[test]
-    fn extend_and_close_hull_two_triangles_one_degenerated() {
-        let mut builder = new_builder(vec![
-            Point { x: 0.27, y: -0.27 },
-            Point { x: 0.0, y: 2.37 },
-        ]);
-        builder.calculate_corners();
-        let sites = vec![
-            Point { x: 0.50, y: 0.0 },
-            Point { x: -0.50, y: 0.0 },
-            Point { x: 0.0, y: -0.50 },
-            Point { x: 0.0, y: -0.60 },
-        ];
-        // TODO triangulate and copy cell configuration
-        // let t = delaunator::triangulate(&sites).unwrap();
-        // println!("{:#?}", t.triangles);
-        // println!("{:#?}", t.halfedges);
-        let hull_sites = (0..sites.len()).collect();
-        let mut cells = vec![
-            vec![0, 1],
-            vec![0],
-            vec![1, 0],
-            vec![1],
-        ];
-        builder.extend_and_close_hull(&sites, &hull_sites, &mut cells);
-
-        assert_cell_vertex(&builder, &cells[0], "First cell", vec![
-            Point { x: 0.0, y: 0.0 },
-            Point { x: 0.25, y: -0.25 },
-            Point { x: 2.0, y: 0.1875 },
-            Point { x: 2.0, y: 2.0 },
-            Point { x: 0.0, y: 2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[1], "Second cell", vec![
-            Point { x: 0.0, y: 0.0 },
-            Point { x: 0.0, y: 2.0 },
-            Point { x: -2.0, y: 2.0 },
-            Point { x: -2.0, y: 0.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[2], "Third cell", vec![
-            Point { x: 0.25, y: -0.25 },
-            Point { x: 0.0, y: 0.0 },
-            Point { x: -2.0, y: 0.0 },
-            Point { x: -2.0, y: -2.0 },
-            Point { x: 0.25, y: -2.0 },
-        ]);
-
-        assert_cell_vertex(&builder, &cells[3], "Forth cell", vec![
-            Point { x: 0.25, y: -0.25 },
-            Point { x: 0.25, y: -2.0 },
-            Point { x: 2.0, y: -2.0 },
-            Point { x: 2.0, y: 0.1875 },
+            Point { x: -31.75, y: -15.5 },
+            Point { x: 32.75, y: -15.5 },
         ]);
     }
 }
