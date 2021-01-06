@@ -2,7 +2,6 @@ mod bounding_box;
 mod cell_clipping;
 mod cell;
 mod edges_around_site_iterator;
-mod into_triangle_list;
 mod utils;
 mod voronoi_builder;
 
