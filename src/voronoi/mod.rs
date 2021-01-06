@@ -1,7 +1,6 @@
 mod into_triangle_list;
 mod utils;
 mod edges_around_site_iterator;
-mod voronoi_mesh_generator;
 mod cell;
 mod voronoi_builder;
 mod bounding_box;
@@ -14,9 +13,7 @@ use self::cell_clipping::*;
 
 pub use self::bounding_box::*;
 pub use self::voronoi_builder::*;
-pub use self::voronoi_mesh_generator::VoronoiMeshGenerator;
 pub use delaunator::Point;
-pub use self::utils::to_f32_vec;
 
 /// Defines how voronoi generation will handle clipping of voronoi edges within the bounding box.
 ///

@@ -61,27 +61,6 @@ impl VoronoiBuilder {
     }
 
     #[allow(dead_code)]
-    pub fn generate_random_sites_constrained(self, size: usize) -> Self {
-        let x_range = (-self.bounding_box.width() / 2.0, self.bounding_box.width() / 2.0 );
-        let y_range = (-self.bounding_box.height() / 2.0, self.bounding_box.height() / 2.0 );
-        self.generate_random_sites(size, x_range, y_range)
-    }
-
-    #[allow(dead_code)]
-    pub fn generate_random_sites(self, size: usize, x_range: (f64, f64), y_range: (f64, f64)) -> Self {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
-        let x_range = rand::distributions::Uniform::new(x_range.0, x_range.1);
-        let y_range = rand::distributions::Uniform::new(y_range.0, y_range.1);
-        let sites = (0..size)
-            .map(|_| Point { x: rng.sample(x_range), y: rng.sample(y_range) })
-            .collect();
-
-        self.set_sites(sites)
-    }
-
-    #[allow(dead_code)]
     pub fn generate_circle_sites(self, size: usize) -> Self {
         let len = size;
         let r = 1.0;

@@ -1,8 +1,21 @@
 use criterion::{BatchSize, Bencher, Criterion, criterion_group, criterion_main};
 use voronoice::*;
+use rand::Rng;
 
 fn create_random_builder(size: usize) -> VoronoiBuilder {
-    VoronoiBuilder::default().generate_random_sites_constrained(size)
+    let mut rng = rand::thread_rng();
+    let builder = VoronoiBuilder::default();
+    let bbox = BoundingBox::default();
+
+    let x_range = rand::distributions::Uniform::new(-bbox.width(), bbox.width());
+    let y_range = rand::distributions::Uniform::new(-bbox.height(), bbox.height());
+    let sites = (0..size)
+        .map(|_| Point { x: rng.sample(x_range), y: rng.sample(y_range) })
+        .collect();
+
+    builder
+        .set_bounding_box(bbox)
+        .set_sites(sites)
 }
 
 fn create_benchmark_fn(b: &mut Bencher, size: usize) {
