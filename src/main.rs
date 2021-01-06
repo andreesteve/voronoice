@@ -5,7 +5,7 @@ use bevy::{prelude::*, render::{camera::{Camera, PerspectiveProjection}, mesh::I
 mod pipeline;
 
 use pipeline::*;
-use voronoi::*;
+use voronoice::*;
 
 fn main() {
     App::build()
@@ -43,8 +43,8 @@ impl Default for VoronoiMeshOptions {
 
 fn spawn_voronoi(commands: &mut Commands, mut meshes: ResMut<Assets<Mesh>>, voronoi: &Voronoi, options: &VoronoiMeshOptions) {
     let start = Instant::now();
-    let voronoi_generator = voronoi::VoronoiMeshGenerator { voronoi: &voronoi, coloring: color_red, topology: options.voronoi_topoloy };
-    let triangle_generator = voronoi::VoronoiMeshGenerator { voronoi: &voronoi, coloring: color_white, topology: options.delauney_topoloy };
+    let voronoi_generator = VoronoiMeshGenerator { voronoi: &voronoi, coloring: color_red, topology: options.voronoi_topoloy };
+    let triangle_generator = VoronoiMeshGenerator { voronoi: &voronoi, coloring: color_white, topology: options.delauney_topoloy };
 
     commands
         .spawn(
@@ -432,7 +432,7 @@ fn handle_input(
         };
 
         respawn = true;
-    } else if input.just_pressed(KeyCode::L) {
+    } else if input.pressed(KeyCode::L) {
         // run loyd relaxation
         if let Some(existing_voronoi) = state.voronoi.as_ref() {
             let builder: VoronoiBuilder = existing_voronoi.into();
@@ -455,7 +455,7 @@ fn handle_input(
     let mouse = mouse_query.iter().next().unwrap();
     if mouse_button_input.just_pressed(MouseButton::Left) || mouse_button_input.just_pressed(MouseButton::Right) || mouse_button_input.just_pressed(MouseButton::Middle) {
         // take sites and change based on type of click
-        let point = voronoi::Point { x: mouse.world_pos.z as f64, y: mouse.world_pos.x  as f64 };
+        let point = Point { x: mouse.world_pos.z as f64, y: mouse.world_pos.x  as f64 };
 
         let (closest_site, num_of_sites) = if let Some(voronoi) = state.voronoi.as_ref() {
             (get_closest_site(voronoi, mouse.world_pos), voronoi.sites.len())

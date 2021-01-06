@@ -1,5 +1,5 @@
 use criterion::{BatchSize, Bencher, Criterion, criterion_group, criterion_main};
-use voronoi::*;
+use voronoice::*;
 
 fn create_random_builder(size: usize) -> VoronoiBuilder {
     VoronoiBuilder::default().generate_random_sites_constrained(size)
