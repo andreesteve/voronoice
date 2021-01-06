@@ -15,6 +15,7 @@ pub enum BoundingBoxLeftRightEdge {
     None
 }
 
+/// Defines a rectangular bounding box.
 #[derive(Debug, Clone)]
 pub struct BoundingBox {
     /// The center point of a rectangle.
@@ -31,6 +32,14 @@ impl Default for BoundingBox {
 }
 
 impl BoundingBox {
+    /// Constructs a new bounding box.
+    ///
+    /// # Arguments
+    ///
+    /// * `origin` - The position of the center of the bounding box
+    /// * `width` - The bounding box's width
+    /// * `height` - The bounding box's height
+    ///
     pub fn new(origin: Point, width: f64, height: f64) -> Self {
         Self {
             top_right: Point { x: origin.x + width / 2.0, y: origin.y + height / 2.0 },
@@ -38,31 +47,41 @@ impl BoundingBox {
         }
     }
 
-    /// New bounding box centeterd at origin.
+    /// Constructs a new bounding box centeterd at origin with the provided width and height.
     pub fn new_centered(width: f64, height: f64) -> Self {
         Self::new(Point { x: 0.0, y: 0.0 }, width, height)
     }
 
+    /// Constructs a new square bounding box centeterd at origin with the provided width.
     pub fn new_centered_square(width: f64) -> Self {
         Self::new_centered(width, width)
     }
 
+    /// Gets the position of the box's center.
+    #[inline]
     pub fn center(&self) -> &Point {
         &self.center
     }
 
+    /// Gets the position of the top right corner of the bounding box.
+    #[inline]
     pub fn top_right(&self) -> &Point {
         &self.top_right
     }
 
+    /// Getst the width of the bounding box.
+    #[inline]
     pub fn width(&self) -> f64 {
         2.0 * (self.top_right.x - self.center.x)
     }
 
+    /// Getst the height of the bounding box.
+    #[inline]
     pub fn height(&self) -> f64 {
         2.0 * (self.top_right.y - self.center.y)
     }
 
+    /// Returns whether a given point is inside (or on the edges) of the bounding box.
     #[inline]
     pub fn is_inside(&self, point: &Point) -> bool {
         point.x.abs() <= self.top_right.x && point.y.abs() <= self.top_right.y
@@ -76,7 +95,7 @@ impl BoundingBox {
 
     /// Returns which edge, if any, the given `point` is located.
     #[inline]
-    pub fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
+    pub (crate) fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
         (
             if point.y == self.top_right.y {
                 // top
@@ -100,7 +119,7 @@ impl BoundingBox {
     }
 
     /// Intersects a line represented by points 'a' and 'b' and returns the two intersecting points with the box, or None
-    pub fn intersect_line(&self, a: &Point, b: &Point) -> (Option<Point>, Option<Point>) {
+    pub (crate) fn intersect_line(&self, a: &Point, b: &Point) -> (Option<Point>, Option<Point>) {
         let c_x = b.x - a.x;
         let c_y = b.y - a.y;
         let c = c_y / c_x;
@@ -168,52 +187,22 @@ impl BoundingBox {
         (f.or(g), h.or(i))
     }
 
-    // /// Similar to intersect_line, but if the intersection points are not in the segment, None is returned instead.
-    // pub fn intersect_line_segment(&self, a: &Point, b: &Point) -> (Option<Point>, Option<Point>) {
-    //     let (max_x, min_x) = if a.x > b.x {
-    //         (a.x, b.x)
-    //     } else {
-    //         (b.x, a.x)
-    //     };
-
-    //     let (max_y, min_y) = if a.y > b.y {
-    //         (a.y, b.y)
-    //     } else {
-    //         (b.y, a.y)
-    //     };
-
-    //     let filter_on_segment = |p: Point| -> Option<Point> {
-    //         if p.x <= max_x && p.x >= min_x && p.y <= max_y && p.y >= min_y {
-    //             Some(p)
-    //         } else {
-    //             None
-    //         }
-    //     };
-
-    //     let (c, d) = self.intersect_line(a, b);
-
-    //     (
-    //         c.map_or(None, filter_on_segment),
-    //         d.map_or(None, filter_on_segment)
-    //     )
-    // }
-
     /// Intersects a ray with the bounding box. The first intersection is returned first.
-    pub fn project_ray(&self, point: &Point, direction: &Point) -> (Option<Point>, Option<Point>) {
+    pub (crate) fn project_ray(&self, point: &Point, direction: &Point) -> (Option<Point>, Option<Point>) {
         let b = Point { x: point.x + direction.x, y: point.y + direction.y };
         let (a, b) = self.intersect_line(point, &b);
         order_points_on_ray(point, direction, a, b)
     }
 
     /// Same as `project_ray` when you don't care abount the second intersecting point.
-    pub fn project_ray_closest(&self, point: &Point, direction: &Point) -> Option<Point> {
+    pub (crate) fn project_ray_closest(&self, point: &Point, direction: &Point) -> Option<Point> {
         self.project_ray(point, direction).0
     }
 }
 
 /// Given a ray defined by `point` and `direction, and two points on such ray `a` and `b`, returns a tuple (w, z) where point <= w <= z.
 /// If either `a` or `b` are smaller than `point`, None is returned.
-pub fn order_points_on_ray(point: &Point, direction: &Point, a: Option<Point>, b: Option<Point>) -> (Option<Point>, Option<Point>) {
+pub (crate) fn order_points_on_ray(point: &Point, direction: &Point, a: Option<Point>, b: Option<Point>) -> (Option<Point>, Option<Point>) {
     if let Some(va) = a {
         if let Some(vb) = b {
             // point, a and b are just an scalar times direction, so we can compare any non-zero

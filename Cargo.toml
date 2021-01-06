@@ -12,7 +12,11 @@ criterion = "0.3.3"
 rand = "0.8.1"
 
 [[bench]]
-name = "my_benchmark"
+name = "quick"
+harness = false
+
+[[bench]]
+name = "large_input_benchmark"
 harness = false
 
 [[bench]]
