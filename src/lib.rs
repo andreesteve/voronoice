@@ -1,3 +1,49 @@
+//! # voronoice
+//!
+//! This crate provides a nice and fast way to construct 2D [Voronoi diagrams](https://en.wikipedia.org/wiki/Voronoi_diagram) from a set of sites.
+//! It builds Voronoi diagrams by first obtaining its [Delauney triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation), through the really fast [delaunator](https://docs.rs/delaunator/*/delaunator) crate,
+//! and then extracting its dual Voronoi diagram.
+//!
+//! Both the Voronoi graph and its dual Delauney graph are exposed through the [Voronoi] type.
+//!
+//! # Example
+//!
+//!```rust
+//! use voronoice::*;
+//!
+//! // voronoi sites
+//! let sites = vec![
+//!     Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }, Point { x: 0.0, y: 1.0 }
+//! ];
+//!
+//! // builds a voronoi diagram from the set of sites above, bounded by a square of size 4
+//! let my_voronoi = VoronoiBuilder::default()
+//!     .set_sites(sites)
+//!     .set_bounding_box(BoundingBox::new_centered_square(4.0))
+//!     .set_lloyd_relaxation_iterations(5)
+//!     .build()
+//!     .unwrap();
+//!
+//! // inspect cells through iterators
+//! my_voronoi.cells_iter().for_each(|cell| {
+//!     println!("Vertices of cell: {:?}", cell.vertices().collect::<Vec<&Point>>())
+//! });
+//!
+//! // or proble cells individually
+//! let my_cell = my_voronoi.cell(1);
+//! println!("Second cell has site {:?}, voronoi vertices {:?} and delauney triangles {:?}",
+//!     my_cell.site_position(),
+//!     my_cell.vertices().collect::<Vec<&Point>>(),
+//!     my_cell.triangles().collect::<Vec<usize>>());
+//!
+//! // or, for graphical applications, that benefit from index buffers
+//! // you can access the raw, indexed data
+//! let all_voronoi_cell_vertices = my_voronoi.vertices();
+//! let indexed_voronoi_cells = my_voronoi.cells();
+//! println!("The first vertex position for the first voronoi cell is at {:?}",
+//!     all_voronoi_cell_vertices[indexed_voronoi_cells[0][0]]);
+//!```
+
 mod bounding_box;
 mod cell_clipping;
 mod cell;
@@ -16,18 +62,18 @@ pub use voronoi_builder::VoronoiBuilder;
 pub use bounding_box::BoundingBox;
 pub use delaunator::Point;
 
-/// Defines how voronoi generation will handle clipping of Voronoi cell edges within the bounding box.
+/// Defines how Voronoi generation will handle clipping of Voronoi cell edges within the bounding box.
 ///
-/// Clipping is necessary to guarantee that all voronoi vertices are within the bounding box boundary.
+/// Clipping is necessary to guarantee that all Voronoi vertices are within the bounding box boundary.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ClipBehavior {
     /// No clipping will be performed. Any sites outside the bounding box will still be used for diagram generation.
     None,
 
-    /// Removes any sites outside the bounding box, but does not perform any further clipping of voronoi cells that may end up outside of the bounding box.
+    /// Removes any sites outside the bounding box, but does not perform any further clipping of Voronoi cells that may end up outside of the bounding box.
     RemoveSitesOutsideBoundingBoxOnly,
 
-    /// Removes sites outside bounding box and clips any voronoi cell edges that fall outside of the bounding box.
+    /// Removes sites outside bounding box and clips any Voronoi cell edges that fall outside of the bounding box.
     Clip,
 }
 
@@ -38,6 +84,8 @@ impl Default for ClipBehavior {
 }
 
 /// The dual Delauney-Voronoi graph.
+///
+/// To obtain an instance of this type, use [VoronoiBuilder].
 pub struct Voronoi {
     /// These are the sites of each voronoi cell.
     sites: Vec<Point>,
@@ -76,7 +124,7 @@ impl std::fmt::Debug for Voronoi {
 // For instances, diag.triangles.len() is the number of starting edges and triangles in the triangulation, you can think of diag.triangles[e] as 'e' as being both the index of the
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
-    pub fn new(sites: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Option<Self> {
+    fn new(sites: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Option<Self> {
         // remove any points not within bounding box
         let sites = match clip_behavior {
             ClipBehavior::RemoveSitesOutsideBoundingBoxOnly | ClipBehavior::Clip => sites.into_iter().filter(|p| bounding_box.is_inside(p)).collect::<Vec<Point>>(),

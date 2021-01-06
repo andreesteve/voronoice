@@ -13,12 +13,16 @@ pub struct VoronoiBuilder {
 impl VoronoiBuilder {
 
     /// Sets the [BoundingBox] that will be used to enclose the graph.
+    ///
+    /// Default value is [BoundingBox::default()].
     pub fn set_bounding_box(mut self, bounding_box: BoundingBox) -> Self {
         self.bounding_box = bounding_box;
         self
     }
 
     /// Sets the [ClipBehavior] to be used when building the graph.
+    ///
+    /// Default value is [ClipBehavior::default()].
     pub fn set_clip_behavior(mut self, clip_behavior: ClipBehavior) -> Self {
         self.clip_behavior = clip_behavior;
         self
@@ -31,6 +35,8 @@ impl VoronoiBuilder {
     }
 
     /// Sets the number of [LLoyd relaxation](https://en.wikipedia.org/wiki/Lloyd%27s_algorithm) iterations that should be run as part of the graph generation.
+    ///
+    /// Default is 0.
     pub fn set_lloyd_relaxation_iterations(mut self, iterations: usize) -> Self {
         self.lloyd_iterations = iterations;
         self
@@ -38,6 +44,24 @@ impl VoronoiBuilder {
 
     /// Consumes this builder and generates a Voronoi diagram/graph.
     /// An ```Option<Voronoi>``` is returned. None may be a valid return value if the set of sites do not generate a valid graph.
+    ///
+    /// # Examples
+    ///
+    ///```
+    /// use voronoice::*;
+    /// // creates a voronoi graph from generated square sites, within a square bounding box of side 5.0
+    /// // and runs 4 lloyd relaxation iterations to spread sites in the region
+    /// let v: Voronoi = VoronoiBuilder::default()
+    ///     .generate_square_sites(10)
+    ///     .set_bounding_box(BoundingBox::new_centered_square(5.0))
+    ///     .set_lloyd_relaxation_iterations(4)
+    ///     .build()
+    ///     .unwrap();
+    ///```
+    ///
+    /// # Panics
+    ///
+    /// Panics if no sites have been provided through [Self::set_sites] or one of the generate_*_sites methods.
     pub fn build(mut self) -> Option<Voronoi> {
         let v = Voronoi::new(
             self.sites.take().expect("Cannot build voronoi without sites. Call set_sites() first."),
