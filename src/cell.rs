@@ -25,7 +25,7 @@ impl<'v> VoronoiCell<'v> {
     ///
     ///```
     /// use voronoice::*;
-    /// let sites = vec![Point { x: 0.0, y: 0.0 }, Point { x: 1.0, y: 0.0 }, Point { x: 0.0, y: 1.0 }];
+    /// let sites = vec![Point { x: 0.0, y: 0.0 }, Point { x: 0.5, y: 0.0 }, Point { x: 0.0, y: 0.5 }];
     /// let v = VoronoiBuilder::default()
     ///     .set_sites(sites.clone())
     ///     .build()
