@@ -1,8 +1,14 @@
 [package]
 name = "voronoice"
 version = "0.0.1"
-authors = ["Andre Esteve <andreesteve@gmail.com>"]
 edition = "2018"
+authors = ["Andre Esteve <andreesteve@gmail.com>"]
+description = "A nice and fast way to construct 2D Voronoi Diagrams"
+repository = "https://github.com/andreesteve/voronoice"
+license = "MIT"
+keywords = ["voronoi", "delaunay", "graphics", "diagram"]
+categories = ["graphics", "visualization"]
+readme = "README.md"
 
 [dependencies]
 delaunator = "0.2.0"

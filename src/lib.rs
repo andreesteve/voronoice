@@ -45,8 +45,8 @@
 //!```
 
 mod bounding_box;
-mod cell_clipping;
-mod cell;
+mod cell_builder;
+mod voronoi_cell;
 mod edges_around_site_iterator;
 mod utils;
 mod voronoi_builder;
@@ -54,12 +54,12 @@ mod voronoi_builder;
 use delaunator::{EMPTY, Triangulation, triangulate};
 use self::{
     utils::{cicumcenter, site_of_incoming},
-    cell::VoronoiCell,
-    cell_clipping::*
+    cell_builder::*
 };
 
 pub use voronoi_builder::VoronoiBuilder;
 pub use bounding_box::BoundingBox;
+pub use voronoi_cell::VoronoiCell;
 pub use delaunator::Point;
 
 /// Defines how Voronoi generation will handle clipping of Voronoi cell edges within the bounding box.
@@ -170,7 +170,7 @@ impl Voronoi {
         })
     }
 
-    /// Borrows a immutable reference to the sites associated with the Voronoi graph.
+    /// Borrows an immutable reference to the sites associated with the Voronoi graph.
     /// This is a reference to the unaltered site-point collection provided for the construction of this Voronoi graph.
     #[inline]
     pub fn sites(&self) -> &Vec<Point> {
@@ -238,9 +238,6 @@ impl Voronoi {
 
     /// Gets a reference to a vector of indices to sites where each triple represents a triangle on the dual Delauney triangulation associated with this Voronoi graph.
     /// All triangles are directed counter-clockwise.
-    /// # Example
-    ///
-    ///
     #[inline]
     pub fn delauney_triangles(&self) -> &Vec<usize> {
         &self.triangulation.triangles
