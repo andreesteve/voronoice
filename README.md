@@ -44,7 +44,7 @@ println!("The first vertex position for the first voronoi cell is at {:?}",
 
 ## Documentation
 
-On [docs.rs](https://docs.rs/delaunator/*/voronoice/).
+On [docs.rs](https://docs.rs/voronoice/*/voronoice/).
 
 ## Performance
 
