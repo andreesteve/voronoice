@@ -4,7 +4,7 @@ use super::Point;
 
 /// Represents a Voronoi cell. This is an ergonomic way to access cell details.
 ///
-/// Use [Voronoi::cell()] or [Voronoi::cells_iter()] to obtain an instance of this type.
+/// Use [Voronoi::cell()] or [Voronoi::iter_cells()] to obtain an instance of this type.
 #[derive(Clone)]
 pub struct VoronoiCell<'v> {
     site: usize,

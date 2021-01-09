@@ -25,7 +25,7 @@
 //!     .unwrap();
 //!
 //! // inspect cells through iterators
-//! my_voronoi.cells_iter().for_each(|cell| {
+//! my_voronoi.iter_cells().for_each(|cell| {
 //!     println!("Vertices of cell: {:?}", cell.vertices().collect::<Vec<&Point>>())
 //! });
 //!
@@ -196,14 +196,14 @@ impl Voronoi {
 
     /// Gets an iterator to walk through all Voronoi cells.
     /// Cells are iterated in order with the vector returned by [Self::sites()].
-    pub fn cells_iter<'v>(&'v self) -> impl Iterator<Item = VoronoiCell<'v>> + Clone {
+    pub fn iter_cells<'v>(&'v self) -> impl Iterator<Item = VoronoiCell<'v>> + Clone {
         (0..self.sites.len())
             .map(move |s| self.cell(s))
     }
 
     /// Gets a vector of Voronoi cell vectors that index the cell vertex positions.
     ///
-    /// Consider using [Self::cells_iter()] or [Self::cell()] instead for a more ergonomic way of accessing cell information.
+    /// Consider using [Self::iter_cells()] or [Self::cell()] instead for a more ergonomic way of accessing cell information.
     /// Use cases for accessing this directly would include graphical applications where you need to build an index buffer for point positions.
     ///
     /// # Examples
@@ -224,7 +224,7 @@ impl Voronoi {
     }
 
     /// Gets the a vector of the Voronoi cell vertices. These vertices are indexed by [Self::cells()].
-    /// Consider using [Self::cells_iter()] or [Self::cell()] instead for a more ergonomic way of accessing cell information.
+    /// Consider using [Self::iter_cells()] or [Self::cell()] instead for a more ergonomic way of accessing cell information.
     ///
     /// For a given Voronoi cell, its vertices are the circumcenters of its associated Delauney triangles.
     /// Values whose indexes are greater than ```sites.len() - 1``` are not actual triangle circumcenters but

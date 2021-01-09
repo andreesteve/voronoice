@@ -76,7 +76,7 @@ impl VoronoiBuilder {
         for _ in 0..self.lloyd_iterations {
             if let Some(voronoi) = v {
                 // get vertices for each cell and approximate centroid
-                let new_sites = voronoi.cells_iter().map(|c| calculate_approximated_cetroid(c.vertices()))
+                let new_sites = voronoi.iter_cells().map(|c| calculate_approximated_cetroid(c.vertices()))
                     .collect::<Vec<Point>>();
 
                 // recompute new voronoi with sites after relaxation
