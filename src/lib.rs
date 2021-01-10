@@ -47,7 +47,7 @@
 mod bounding_box;
 mod cell_builder;
 mod voronoi_cell;
-mod edges_around_site_iterator;
+mod iterator;
 mod utils;
 mod voronoi_builder;
 
@@ -60,7 +60,7 @@ use self::{
 pub use voronoi_builder::VoronoiBuilder;
 pub use bounding_box::BoundingBox;
 pub use voronoi_cell::VoronoiCell;
-pub use edges_around_site_iterator::NeighborSiteIterator;
+pub use iterator::NeighborSiteIterator;
 pub use delaunator::Point;
 
 /// Defines how Voronoi generation will handle clipping of Voronoi cell edges within the bounding box.

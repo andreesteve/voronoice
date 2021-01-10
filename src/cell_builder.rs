@@ -1,7 +1,7 @@
 use std::{assert_eq, iter::once};
 use delaunator::{EMPTY, Triangulation};
 use utils::triangle_of_edge;
-use super::{ClipBehavior, Point, bounding_box::{self, *}, edges_around_site_iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
+use super::{ClipBehavior, Point, bounding_box::{self, *}, iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
 
 pub struct CellBuilder {
     vertices: Vec<Point>,

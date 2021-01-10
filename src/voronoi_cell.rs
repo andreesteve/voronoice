@@ -4,7 +4,7 @@ use delaunator::EMPTY;
 use super::{
     Voronoi,
     Point,
-    edges_around_site_iterator::NeighborSiteIterator
+    iterator::NeighborSiteIterator
 };
 
 /// Represents a Voronoi cell. This is an ergonomic way to access cell details.
