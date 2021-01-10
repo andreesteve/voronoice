@@ -58,3 +58,5 @@ Here are some generation times on a 3.5GHz Core i7 from 2012.
 |  1,000,000       | 402 ms       |
 |  5,000,000       | 2.4 s        |
 | 10,000,000       | 5.1 s        |
+
+A comparison benchmark with other Rust Voronoi diagram generating libraries can be found [here](https://github.com/andreesteve/voronoi-benchmark-rs).
