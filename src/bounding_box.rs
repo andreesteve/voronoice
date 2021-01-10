@@ -27,7 +27,7 @@ pub struct BoundingBox {
 
 impl Default for BoundingBox {
     fn default() -> Self {
-        Self::new_centered(1.0, 1.0)
+        Self::new_centered_square(2.0) // square from [-1, 1] on xy
     }
 }
 

@@ -1,12 +1,14 @@
 use delaunator::{Point, Triangulation, next_halfedge};
 
 /// Gets the index of the triangle (starting half-edge) this half-edge belongs to.
+#[inline]
 pub fn triangle_of_edge(edge: usize) -> usize {
     edge / 3
 }
 
 /// Returns the index to the site that half-edge `e` points to.
 /// This is similar to `triangles`. Given an half-edge `e`, `triangles` returns the index of the site the half-edge start off. `site_of_incoming` returns the index of the site the half-edge points to.
+#[inline]
 pub fn site_of_incoming(triangulation: &Triangulation, e: usize) -> usize {
     triangulation.triangles[next_halfedge(e)]
 }

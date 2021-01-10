@@ -1,6 +1,11 @@
 use std::fmt;
-use super::Voronoi;
-use super::Point;
+use delaunator::EMPTY;
+
+use super::{
+    Voronoi,
+    Point,
+    edges_around_site_iterator::NeighborSiteIterator
+};
 
 /// Represents a Voronoi cell. This is an ergonomic way to access cell details.
 ///
@@ -40,24 +45,47 @@ impl<'v> VoronoiCell<'v> {
     }
 
     /// Gets an iterator the indices of the triangles of the dual Delauney triangulation that are associated with this cell.
-    /// The Voronoi cell vertices are the circumcenters of the associated Delauney triangles. This is a way to index into the underlying Delauney triangles.
+    /// The Voronoi cell vertices are the circumcenters of the associated Delauney triangles.
+    /// This is a way to index into the underlying Delauney triangles and this cell's vertices.
     ///
     /// If this cell is on the hull of the diagram (```cell.is_on_hull() == true```), or has had one of its edges clipped,
     #[inline]
-    pub fn triangles(&self) -> impl Iterator<Item=usize> + 'v + Clone {
+    pub fn iter_triangles(&self) -> impl Iterator<Item = usize> + 'v + Clone {
         self.voronoi.cells[self.site].iter().copied()
     }
 
-    /// Gets an iterator for the vertices of
+    /// Gets an iterator for the vertices of this cell.
     #[inline]
-    pub fn vertices(&self) -> impl Iterator<Item=&Point> {
-        self.triangles().map(move |t| &self.voronoi.circumcenters[t])
+    pub fn iter_vertices(&self) -> impl Iterator<Item = &Point> {
+        self.iter_triangles().map(move |t| &self.voronoi.circumcenters[t])
+    }
+
+    /// Gets an iterator that returns the index of each site that shared an edge with this cell/site, in a counter-clockwise manner.
+    ///
+    /// # Example
+    ///
+    ///```
+    /// use voronoice::*;
+    /// let sites = vec![Point { x: -0.5, y: 0.0 }, Point { x: 0.5, y: 0.0 }, Point { x: 0.0, y: 0.0 }, Point { x: 0.0, y: 0.5 }, Point { x: 0.0, y: -0.5 }];
+    /// let v = VoronoiBuilder::default()
+    ///     .set_sites(sites.clone())
+    ///     .build()
+    ///     .unwrap();
+    /// let neighbors: Vec<usize> = v.cell(0).iter_neighbors().collect();
+    /// assert_eq!(neighbors[0], 4);
+    /// assert_eq!(neighbors[1], 2);
+    /// assert_eq!(neighbors[2], 3);
+    ///```
+    #[inline]
+    pub fn iter_neighbors(&self) -> NeighborSiteIterator {
+        NeighborSiteIterator::new(self.voronoi, self.site)
     }
 
     /// Returns a boolean indicating whether this cell is on the hull (edge) of the diagram.
     pub fn is_on_hull(&self) -> bool {
-        // TODO this will be slow for a large graph - checking edges will likely be faster
-        self.voronoi.triangulation.hull.contains(&self.site)
+        // if there is no half-edge associated with the left-most edge, the edge is on the hull
+        let incoming_leftmost_edge = self.voronoi.site_to_incoming_leftmost_halfedge[self.site];
+        self.voronoi.triangulation.halfedges[incoming_leftmost_edge] == EMPTY
     }
 }
 
@@ -98,8 +126,8 @@ impl<'v> fmt::Debug for  VoronoiCell<'v> {
                 }
             })
             .field("vertices", &Cellvertices {
-                triangles: self.triangles().collect(),
-                positions: self.triangles().map(|t| self.voronoi.circumcenters[t].clone()).collect()
+                triangles: self.iter_triangles().collect(),
+                positions: self.iter_triangles().map(|t| self.voronoi.circumcenters[t].clone()).collect()
             })
             .finish()
     }

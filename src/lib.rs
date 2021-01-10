@@ -26,15 +26,15 @@
 //!
 //! // inspect cells through iterators
 //! my_voronoi.iter_cells().for_each(|cell| {
-//!     println!("Vertices of cell: {:?}", cell.vertices().collect::<Vec<&Point>>())
+//!     println!("Vertices of cell: {:?}", cell.iter_vertices().collect::<Vec<&Point>>())
 //! });
 //!
 //! // or proble cells individually
 //! let my_cell = my_voronoi.cell(1);
 //! println!("Second cell has site {:?}, voronoi vertices {:?} and delauney triangles {:?}",
 //!     my_cell.site_position(),
-//!     my_cell.vertices().collect::<Vec<&Point>>(),
-//!     my_cell.triangles().collect::<Vec<usize>>());
+//!     my_cell.iter_vertices().collect::<Vec<&Point>>(),
+//!     my_cell.iter_triangles().collect::<Vec<usize>>());
 //!
 //! // or, for graphical applications, that benefit from index buffers
 //! // you can access the raw, indexed data
@@ -60,6 +60,7 @@ use self::{
 pub use voronoi_builder::VoronoiBuilder;
 pub use bounding_box::BoundingBox;
 pub use voronoi_cell::VoronoiCell;
+pub use edges_around_site_iterator::NeighborSiteIterator;
 pub use delaunator::Point;
 
 /// Defines how Voronoi generation will handle clipping of Voronoi cell edges within the bounding box.
@@ -187,7 +188,7 @@ impl Voronoi {
     ///     .build()
     ///     .unwrap();
     /// println!("The following are the positions for the Voronoi cell 0: {:?}",
-    ///     v.cell(0).vertices().collect::<Vec<&Point>>());
+    ///     v.cell(0).iter_vertices().collect::<Vec<&Point>>());
     ///```
     #[inline]
     pub fn cell(&self, site: usize) -> VoronoiCell {
