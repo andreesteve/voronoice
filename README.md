@@ -1,5 +1,8 @@
 # Voronoice
 
+[![Crate](https://img.shields.io/crates/v/voronoice.svg)](https://crates.io/crates/voronoice)
+[![API](https://docs.rs/voronoice/badge.svg)](https://docs.rs/voronoice)
+
 A nice and fast way to construct 2D [Voronoi diagrams](https://en.wikipedia.org/wiki/Voronoi_diagram) written in Rust.
 
 Voronoice builds Voronoi diagrams by first obtaining its [Delauney triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation), through the really fast [delaunator](https://docs.rs/delaunator/*/delaunator) crate and then extracting its dual Voronoi diagram.
