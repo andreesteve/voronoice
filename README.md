@@ -30,7 +30,7 @@ my_voronoi.iter_cells().for_each(|cell| {
     println!("Vertices of cell: {:?}", cell.vertices().collect::<Vec<&Point>>())
 });
 
-// or proble cells individually
+// or probe cells individually
 let my_cell = my_voronoi.cell(1);
 println!("Second cell has site {:?}, voronoi vertices {:?} and delauney triangles {:?}",
     my_cell.site_position(),

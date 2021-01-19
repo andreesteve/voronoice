@@ -45,3 +45,10 @@ pub fn cicumcenter(a: &Point, b: &Point, c: &Point) -> Point {
         y: a.y + d * (b_x * cc - c_x * bb),
     }
 }
+
+/// Calculates the squared distance between a and b
+pub fn dist2(a: &Point, b: &Point) -> f64 {
+    let x = a.x - b.x;
+    let y = a.y - b.y;
+    (x * x) + (y * y)
+}

@@ -29,7 +29,7 @@
 //!     println!("Vertices of cell: {:?}", cell.iter_vertices().collect::<Vec<&Point>>())
 //! });
 //!
-//! // or proble cells individually
+//! // or probe cells individually
 //! let my_cell = my_voronoi.cell(1);
 //! println!("Second cell has site {:?}, voronoi vertices {:?} and delauney triangles {:?}",
 //!     my_cell.site_position(),
@@ -61,6 +61,7 @@ pub use voronoi_builder::VoronoiBuilder;
 pub use bounding_box::BoundingBox;
 pub use voronoi_cell::VoronoiCell;
 pub use iterator::NeighborSiteIterator;
+pub use iterator::CellPathIterator;
 pub use delaunator::Point;
 
 /// Defines how Voronoi generation will handle clipping of Voronoi cell edges within the bounding box.
