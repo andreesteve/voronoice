@@ -1,5 +1,6 @@
 use delaunator::EPSILON;
 use super::Point;
+use approx::abs_diff_eq;
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum BoundingBoxTopBottomEdge {
@@ -69,13 +70,13 @@ impl BoundingBox {
         &self.top_right
     }
 
-    /// Getst the width of the bounding box.
+    /// Gets the width of the bounding box.
     #[inline]
     pub fn width(&self) -> f64 {
         2.0 * (self.top_right.x - self.center.x)
     }
 
-    /// Getst the height of the bounding box.
+    /// Gets the height of the bounding box.
     #[inline]
     pub fn height(&self) -> f64 {
         2.0 * (self.top_right.y - self.center.y)
@@ -84,7 +85,23 @@ impl BoundingBox {
     /// Returns whether a given point is inside (or on the edges) of the bounding box.
     #[inline]
     pub fn is_inside(&self, point: &Point) -> bool {
-        point.x.abs() <= self.top_right.x && point.y.abs() <= self.top_right.y
+        let horizonal_ok = (
+            self.top_right.x - self.width() < point.x // greater than left
+            || abs_diff_eq!(self.top_right.x - self.width(), point.x, epsilon = EPSILON) // or nearly equal to left
+        ) && ( // but also
+            (point.x < self.top_right.x) // smaller than right
+            || abs_diff_eq!(self.top_right.x, point.x, epsilon = EPSILON) // or nearly equal to right
+        );
+
+        let vertical_ok = (
+            self.top_right.y - self.height() < point.y // greater than bottom
+            || abs_diff_eq!(self.top_right.y - self.height(), point.y, epsilon = EPSILON) // or nearly equal to bottom
+        ) && ( // but also
+            (point.y < self.top_right.y) // smaller than top
+            || abs_diff_eq!(self.top_right.y, point.y, epsilon = EPSILON) // or nearly equal to top
+        );
+
+        horizonal_ok && vertical_ok
     }
 
     // /// Same as inside, but return false if point is on the box edge.
@@ -97,19 +114,19 @@ impl BoundingBox {
     #[inline]
     pub (crate) fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
         (
-            if point.y == self.top_right.y {
+            if abs_diff_eq!(point.y, self.top_right.y, epsilon = EPSILON) {
                 // top
                 BoundingBoxTopBottomEdge::Top
-            } else if point.y == -self.top_right.y {
+            } else if abs_diff_eq!(point.y, self.top_right.y - self.height(), epsilon = EPSILON) {
                 BoundingBoxTopBottomEdge::Bottom
             } else {
                 BoundingBoxTopBottomEdge::None
             },
 
-            if point.x == self.top_right.x {
+            if abs_diff_eq!(point.x, self.top_right.x, epsilon = EPSILON) {
                 // right
                 BoundingBoxLeftRightEdge::Right
-            } else if point.x == - self.top_right.x {
+            } else if abs_diff_eq!(point.x, self.top_right.x - self.width(), epsilon = EPSILON) {
                 // left
                 BoundingBoxLeftRightEdge::Left
             } else {

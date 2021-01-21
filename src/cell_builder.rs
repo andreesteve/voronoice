@@ -1,7 +1,8 @@
 use std::{assert_eq, iter::once};
-use delaunator::{EMPTY, Triangulation};
+use delaunator::{EMPTY, Triangulation, EPSILON};
 use utils::triangle_of_edge;
 use super::{ClipBehavior, Point, bounding_box::{self, *}, iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
+use approx::abs_diff_eq;
 
 pub struct CellBuilder {
     vertices: Vec<Point>,
@@ -232,7 +233,7 @@ impl CellBuilder {
     /// Cells edges be returned as `EMPTY` indicating that the edge is completely outside the box and should be excluded.
     fn clip_cell_edge(&mut self, a: usize, b: usize) -> (usize, usize) {
         // we are iterating a -> b, counter-clockwise on the edges of the cell (cell may be open)
-        // at lest one intersection, possibilities
+        // at least one intersection, possibilities
         // 1) a -> box edge -> box edge -> b            a and b outside box ---> need to clip edge at both intersections
         // 2) a -> box edge_same, box edge_same -> b    same as 1, but a->b is a line parallel to one of the box edges ---> keep edge (excluding edge would open cell)
         // 3) a -> box corner, box corner -> b          same as 1, but intersection is right on box corner, or line is parallel to one of the box edges ---> keep edge (excluding edge would open cell)
@@ -247,7 +248,7 @@ impl CellBuilder {
 
         if !self.bounding_box.is_inside(pa) {
             // a is outside, b is inside or outside
-            // clip will tell us how many intersections between a->b, and clip_a will come first than clip_b
+            // clip will tell us how many intersections between a->b, and clip_a will come first, then clip_b
             let a_to_b = Point { x: pb.x - pa.x, y: pb.y - pa.y };
             let (clip_a, clip_b) = self.bounding_box.project_ray(pa, &a_to_b);
 
@@ -266,9 +267,10 @@ impl CellBuilder {
                             // a -> box -> b; edge crosses box (case 1,2,3), we clip this ray twice
                             new_b = v_index + 1;
 
-                            if clip_a == clip_b {
+                            if abs_diff_eq!(clip_a.x, clip_b.x, epsilon = EPSILON) && abs_diff_eq!(clip_a.y, clip_b.y, epsilon = EPSILON) {
+                            // Sadly, the nearly_equals-function is private in delaunator
+                            //if clip_a.nearly_equals(clip_b) {
                                 // case 3 - a and b outside box, intersection at the corner
-                                // FIXME: consider distance epislon comparison instead
                                 // intersection at same point (corner)
                                 new_b = EMPTY;
 
@@ -427,10 +429,14 @@ impl CellBuilder {
 
     pub fn calculate_corners(&mut self) {
         // add all corners to the vertice list as they will be used for closing cells
+        let width = self.bounding_box.width();
+        let height = self.bounding_box.height();
+
         let top_right = self.bounding_box.top_right().clone();
-        let mut top_left = top_right.clone(); top_left.x *= -1.0;
-        let mut bottom_left = top_left.clone(); bottom_left.y *= -1.0;
-        let mut bottom_right = top_right.clone(); bottom_right.y *= -1.0;
+        let mut top_left = top_right.clone(); top_left.x -= width;
+        let mut bottom_left = top_left.clone(); bottom_left.y -= height;
+        let mut bottom_right = top_right.clone(); bottom_right.y -= height;
+
         self.vertices.push(top_right);
         self.vertices.push(top_left);
         self.vertices.push(bottom_left);

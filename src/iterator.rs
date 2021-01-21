@@ -231,7 +231,7 @@ mod test {
             [0.2, -0.5],
             [0.3, -0.5],
         */
-        // need to find a way to remove delauney neighbors for whose voronoi edges were clipped out
+        // need to find a way to remove delauney neighbors whose voronoi edges were clipped out
         // comparing edge is one way, comparing circumcenters is another https://github.com/d3/d3-delaunay/pull/98/files
         let sites = vec![Point { x: -1.0, y: -1.0 }, Point { x: 0.0, y: -1.0 }, Point { x: -0.45, y: -0.95 }];
         let v = VoronoiBuilder::default()
@@ -283,7 +283,7 @@ mod test {
         assert_eq!(Some(0), path.next());
         assert_eq!(Some(1), path.next());
         // this fails because the point 13 is a neighbor of 1; this is technically true if we expand the bounding box to a large value
-        // 13 an 1 share an voronoi edge, but that edge is clipped by the bounding box
+        // 13 and 1 share a voronoi edge, but that edge is clipped by the bounding box
         assert_eq!(Some(3), path.next());
         assert_eq!(Some(5), path.next());
         assert_eq!(Some(8), path.next());

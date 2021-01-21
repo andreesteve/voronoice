@@ -11,7 +11,8 @@ categories = ["graphics", "visualization"]
 readme = "README.md"
 
 [dependencies]
-delaunator = { path = "../delaunator-rs", version = "0.2.0" }
+delaunator = { version = "~0.2" }
+approx = { version = "~0.4" }
 
 [dev-dependencies]
 criterion = "0.3.3"
