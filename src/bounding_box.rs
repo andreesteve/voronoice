@@ -94,20 +94,26 @@ impl BoundingBox {
     }
 
     // /// Same as inside, but return false if point is on the box edge.
-    // #[inline]
-    // pub fn is_exclusively_inside(&self, point: &Point) -> bool {
-    //     point.x.abs() < self.top_right.x && point.y.abs() < self.top_right.y
-    // }
+    #[inline]
+    pub fn is_exclusively_inside(&self, point: &Point) -> bool {
+        // left.x < point.x < right.x
+        let horizonal_ok = (self.top_right.x - self.width() < point.x ) && (point.x < self.top_right.x);
+        // bottom.y < point.y < top.y
+        let vertical_ok = (self.top_right.y - self.height() < point.y) && (point.y < self.top_right.y);
+
+        horizonal_ok && vertical_ok
+    }
 
     /// Returns which edge, if any, the given `point` is located.
     #[inline]
     pub (crate) fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
         (
             // The cost of this macro is probably justified in this case, since equality (==) is necessary
+            // Didn't check the performance impact, though.
             if abs_diff_eq!(point.y, self.top_right.y, epsilon = EPSILON) {
                 // top
                 BoundingBoxTopBottomEdge::Top
-            } else if abs_diff_eq!(point.y, self.top_right.y - self.height(), epsilon = EPSILON) {
+            } else if abs_diff_eq!(point.y, (self.top_right.y - self.height()), epsilon = EPSILON) {
                 BoundingBoxTopBottomEdge::Bottom
             } else {
                 BoundingBoxTopBottomEdge::None
@@ -116,7 +122,7 @@ impl BoundingBox {
             if abs_diff_eq!(point.x, self.top_right.x, epsilon = EPSILON) {
                 // right
                 BoundingBoxLeftRightEdge::Right
-            } else if abs_diff_eq!(point.x, self.top_right.x - self.width(), epsilon = EPSILON) {
+            } else if abs_diff_eq!(point.x, (self.top_right.x - self.width()), epsilon = EPSILON) {
                 // left
                 BoundingBoxLeftRightEdge::Left
             } else {
@@ -137,20 +143,25 @@ impl BoundingBox {
         let mut h = None;
         let mut i = None;
 
+        let boundary_right = self.top_right.x;
+        let boundary_left = self.top_right.x - self.width();
+        let boundary_top = self.top_right.y;
+        let boundary_bottom = self.top_right.y - self.height();
+
         // intersection left, right edges
         if c_x.abs() > EPSILON {
             // y = c*x + d
-            let right_y = (self.top_right.x * c) + d;
-            let left_y = d - (self.top_right.x * c);
+            let right_y = (boundary_right * c) + d;
+            let left_y = (boundary_left * c) + d;
 
-            if right_y <= self.top_right.y
-            && right_y >= (self.top_right.y - self.height()) {
-                f = Some(Point { x: self.top_right.x, y: right_y });
+            if right_y <= boundary_top 
+            && right_y >= boundary_bottom {
+                f = Some(Point { x: boundary_right, y: right_y });
             }
 
-            if left_y <= self.top_right.y
-            && left_y >= (self.top_right.y - self.height()) {
-                g = Some(Point { x: self.top_right.x - self.width(), y: left_y })
+            if left_y <= boundary_top
+            && left_y >= boundary_bottom {
+                g = Some(Point { x: boundary_left, y: left_y })
             }
 
             if g.is_some() && f.is_some() {
@@ -163,12 +174,12 @@ impl BoundingBox {
         if c_y.abs() > EPSILON {
             if c_x.abs() < EPSILON {
                 // line is parallel to y
-                if a.x <= self.top_right.x 
-                && a.x >= (self.top_right.x - self.width()) {
+                if a.x <= boundary_right
+                && a.x >= boundary_left {
                     // and crosses box
                     return (
-                        Some(Point { x: a.x, y: self.top_right.y }),
-                        Some(Point { x: a.x, y: self.top_right.y - self.height() })
+                        Some(Point { x: a.x, y: boundary_top }),
+                        Some(Point { x: a.x, y: boundary_bottom })
                     );
                 } else {
                     // does not cross box
@@ -177,17 +188,17 @@ impl BoundingBox {
             }
 
             // x = (y - d) / c
-            let top_x = (self.top_right.y - d) / c;
-            let bottom_x = -(d + self.top_right.y) / c;
+            let top_x = (boundary_top - d) / c;
+            let bottom_x = (boundary_bottom - d) / c;
 
-            if top_x <= self.top_right.x 
-            && top_x >= (self.top_right.x - self.width()) {
-                h = Some(Point { x: top_x, y: self.top_right.y })
+            if top_x <= boundary_right
+            && top_x >= boundary_left {
+                h = Some(Point { x: top_x, y: boundary_top })
             }
 
-            if bottom_x <= self.top_right.x 
-            && bottom_x >= (self.top_right.x - self.width()) {
-                i = Some(Point { x: bottom_x, y: self.top_right.y - self.height() })
+            if bottom_x <= boundary_right 
+            && bottom_x >= boundary_left {
+                i = Some(Point { x: bottom_x, y: boundary_bottom })
             }
 
             if h.is_some() && i.is_some() {
@@ -212,13 +223,16 @@ impl BoundingBox {
     }
 }
 
-/// Given a ray defined by `point` and `direction, and two points on such ray `a` and `b`, returns a tuple (w, z) where point <= w <= z.
+/// Given a ray defined by `point` and `direction`, and two points `a` and `b` on such ray, returns a tuple (w, z) where point <= w <= z.
 /// If either `a` or `b` are smaller than `point`, None is returned.
 pub (crate) fn order_points_on_ray(point: &Point, direction: &Point, a: Option<Point>, b: Option<Point>) -> (Option<Point>, Option<Point>) {
-    if let Some(va) = a {
-        if let Some(vb) = b {
-            // point, a and b are just an scalar times direction, so we can compare any non-zero
-            // direction component, use the largest
+    match (a,b) {
+        (None, None) => { // no points, no intersection
+            (None, None)
+        }
+        (Some(va), Some(vb)) => { // both a and b are reachable
+            // point a and b are just a scalar times direction, so we can compare any non-zero
+            // direction component, use largest
             let (d, da, db) = if direction.x.abs() > direction.y.abs() {
                 // use x for comparison
                 (direction.x, va.x - point.x, vb.x - point.x)
@@ -226,10 +240,8 @@ pub (crate) fn order_points_on_ray(point: &Point, direction: &Point, a: Option<P
                 (direction.y, va.y - point.y, vb.y - point.y)
             };
 
-            if d.signum() == da.signum() {
-                // a is reacheable
-                if d.signum() == db.signum() {
-                    // b is reacheable
+            match (d.signum() == da.signum(), d.signum() == db.signum()) {
+                (true, true) => {
                     if da.abs() > db.abs() {
                         // b is closer
                         (Some(vb), Some(va))
@@ -237,27 +249,36 @@ pub (crate) fn order_points_on_ray(point: &Point, direction: &Point, a: Option<P
                         // a is closer
                         (Some(va), Some(vb))
                     }
-                } else {
-                    // b will never be reached
+                },
+                (true, false) => { // only a reachable
                     (Some(va), None)
+                },
+                (false, true) => { // only b reachably
+                    (Some(vb), None)
+                },
+                (false, false) => { // neither a nor b is reachable, no intersection
+                    (None, None)
                 }
-            } else if d.signum() == db.signum() {
-                // a will never be reached
-                (Some(vb), None)
+            }
+        },
+        (Some(va), None) => {
+            if direction.x.signum() == va.x.signum() && direction.y.signum() == va.y.signum() {
+                // a is in the right direction
+                (Some(va), None)
             } else {
-                // neither will be reached
+                // a can't be reached
                 (None, None)
             }
-        } else if direction.x.signum() == va.x.signum() && direction.y.signum() == va.y.signum() {
-            // a is in the right direction
-            (Some(va), None)
-        } else {
-            // a can't be reached
-            (None, None)
+        },
+        (None, Some(vb)) => {
+            if direction.x.signum() == vb.x.signum() && direction.y.signum() == vb.y.signum() {
+                // b is in the right direction
+                (Some(vb), None)
+            } else {
+                // b can't be reached
+                (None, None)
+            }
         }
-    } else {
-        // no intersection
-        (None, None)
     }
 }
 
