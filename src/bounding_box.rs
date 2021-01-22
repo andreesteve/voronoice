@@ -85,21 +85,10 @@ impl BoundingBox {
     /// Returns whether a given point is inside (or on the edges) of the bounding box.
     #[inline]
     pub fn is_inside(&self, point: &Point) -> bool {
-        let horizonal_ok = (
-            self.top_right.x - self.width() < point.x // greater than left
-            || abs_diff_eq!(self.top_right.x - self.width(), point.x, epsilon = EPSILON) // or nearly equal to left
-        ) && ( // but also
-            (point.x < self.top_right.x) // smaller than right
-            || abs_diff_eq!(self.top_right.x, point.x, epsilon = EPSILON) // or nearly equal to right
-        );
-
-        let vertical_ok = (
-            self.top_right.y - self.height() < point.y // greater than bottom
-            || abs_diff_eq!(self.top_right.y - self.height(), point.y, epsilon = EPSILON) // or nearly equal to bottom
-        ) && ( // but also
-            (point.y < self.top_right.y) // smaller than top
-            || abs_diff_eq!(self.top_right.y, point.y, epsilon = EPSILON) // or nearly equal to top
-        );
+        // left.x <= point.x <= right.x
+        let horizonal_ok = (self.top_right.x - self.width() <= point.x ) && (point.x <= self.top_right.x);
+        // bottom.y <= point.y <= top.y
+        let vertical_ok = (self.top_right.y - self.height() <= point.y) && (point.y <= self.top_right.y);
 
         horizonal_ok && vertical_ok
     }
@@ -114,6 +103,7 @@ impl BoundingBox {
     #[inline]
     pub (crate) fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
         (
+            // The cost of this macro is probably justified in this case, since equality (==) is necessary
             if abs_diff_eq!(point.y, self.top_right.y, epsilon = EPSILON) {
                 // top
                 BoundingBoxTopBottomEdge::Top
@@ -153,12 +143,14 @@ impl BoundingBox {
             let right_y = (self.top_right.x * c) + d;
             let left_y = d - (self.top_right.x * c);
 
-            if right_y.abs() <= self.top_right.y {
+            if right_y <= self.top_right.y
+            && right_y >= (self.top_right.y - self.height()) {
                 f = Some(Point { x: self.top_right.x, y: right_y });
             }
 
-            if left_y.abs() <= self.top_right.y {
-                g = Some(Point { x: -self.top_right.x, y: left_y })
+            if left_y <= self.top_right.y
+            && left_y >= (self.top_right.y - self.height()) {
+                g = Some(Point { x: self.top_right.x - self.width(), y: left_y })
             }
 
             if g.is_some() && f.is_some() {
@@ -171,11 +163,12 @@ impl BoundingBox {
         if c_y.abs() > EPSILON {
             if c_x.abs() < EPSILON {
                 // line is parallel to y
-                if a.x.abs() <= self.top_right.x {
+                if a.x <= self.top_right.x 
+                && a.x >= (self.top_right.x - self.width()) {
                     // and crosses box
                     return (
                         Some(Point { x: a.x, y: self.top_right.y }),
-                        Some(Point { x: a.x, y: -self.top_right.y })
+                        Some(Point { x: a.x, y: self.top_right.y - self.height() })
                     );
                 } else {
                     // does not cross box
@@ -187,12 +180,14 @@ impl BoundingBox {
             let top_x = (self.top_right.y - d) / c;
             let bottom_x = -(d + self.top_right.y) / c;
 
-            if top_x.abs() <= self.top_right.x {
+            if top_x <= self.top_right.x 
+            && top_x >= (self.top_right.x - self.width()) {
                 h = Some(Point { x: top_x, y: self.top_right.y })
             }
 
-            if bottom_x.abs() <= self.top_right.x {
-                i = Some(Point { x: bottom_x, y: -self.top_right.y })
+            if bottom_x <= self.top_right.x 
+            && bottom_x >= (self.top_right.x - self.width()) {
+                i = Some(Point { x: bottom_x, y: self.top_right.y - self.height() })
             }
 
             if h.is_some() && i.is_some() {
