@@ -77,8 +77,13 @@ impl CellBuilder {
         // the vertex is the circumcenter of the triangle of edge a->b
         // the vertex is on the a->b bisector line, thus we can take midpoint of a->b and vertex for the orthogonal projection
         let edge_midpoint = Point { x: (site_a.x + site_b.x) / 2.0, y: (site_a.y + site_b.y) / 2.0 };
+        
         // clockwise rotation 90 degree from edge direction
-        let orthogonal = Point { x: site_b.y - site_a.y, y: site_a.x - site_b.x };
+        let mut orthogonal = Point { x: site_b.y - site_a.y, y: site_a.x - site_b.x };
+        // normalizing the orthogonal vector
+        let ortho_length = (orthogonal.x * orthogonal.x + orthogonal.y * orthogonal.y).sqrt();
+        orthogonal.x = orthogonal.x * (1. / ortho_length);
+        orthogonal.y = orthogonal.y * (1. / ortho_length);
 
         let projected = Point { x: edge_midpoint.x + (scale * orthogonal.x), y: edge_midpoint.y + (scale * orthogonal.y) };
         let index = self.vertices.len();
@@ -94,7 +99,7 @@ impl CellBuilder {
         // Add this extended vertex to the cell, and the previous cell extended vertex as well
         // Thus closing the cell. When clip logic runs for this cell, it will clip the extensions as needed
         // Set a extension scale to be more than the bounding box diagonal, to make sure we get nice clipped corners
-        let scale = 2.0 * self.bounding_box.width() * self.bounding_box.height();
+        let scale = self.bounding_box.width() + self.bounding_box.height();
 
         // handle first
         let &last_site = hull_sites.last().expect("");
