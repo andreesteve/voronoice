@@ -13,7 +13,7 @@ fn create_random_sites(size: usize) -> Vec<Point> {
         .collect()
 }
 
-fn delauney_benchmark_fn(b: &mut Bencher, size: usize) {
+fn delaunay_benchmark_fn(b: &mut Bencher, size: usize) {
     b.iter_batched(
         || create_random_sites(size),
         |sites| (triangulate(&sites), sites),
@@ -39,9 +39,9 @@ fn criterion_benchmark(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("delauney", size),
+            BenchmarkId::new("delaunay", size),
             size,
-            |b, &bench_size| delauney_benchmark_fn(b, bench_size)
+            |b, &bench_size| delaunay_benchmark_fn(b, bench_size)
         );
     }
 
