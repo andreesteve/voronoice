@@ -5,7 +5,7 @@
 
 A nice and fast way to construct 2D [Voronoi diagrams](https://en.wikipedia.org/wiki/Voronoi_diagram) written in Rust.
 
-Voronoice builds Voronoi diagrams by first obtaining its [Delauney triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation), through the really fast [delaunator](https://docs.rs/delaunator/*/delaunator) crate and then extracting its dual Voronoi diagram.
+Voronoice builds Voronoi diagrams by first obtaining its [Delaunay triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation), through the really fast [delaunator](https://docs.rs/delaunator/*/delaunator) crate and then extracting its dual Voronoi diagram.
 
 ## Example
 
@@ -32,7 +32,7 @@ my_voronoi.iter_cells().for_each(|cell| {
 
 // or probe cells individually
 let my_cell = my_voronoi.cell(1);
-println!("Second cell has site {:?}, voronoi vertices {:?} and delauney triangles {:?}",
+println!("Second cell has site {:?}, voronoi vertices {:?} and delaunay triangles {:?}",
     my_cell.site_position(),
     my_cell.vertices().collect::<Vec<&Point>>(),
     my_cell.triangles().collect::<Vec<usize>>());

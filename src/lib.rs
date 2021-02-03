@@ -1,10 +1,10 @@
 //! # voronoice
 //!
 //! This crate provides a nice and fast way to construct 2D [Voronoi diagrams](https://en.wikipedia.org/wiki/Voronoi_diagram) from a set of sites.
-//! It builds Voronoi diagrams by first obtaining its [Delauney triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation), through the really fast [delaunator](https://docs.rs/delaunator/*/delaunator) crate,
+//! It builds Voronoi diagrams by first obtaining its [Delaunay triangulation](https://en.wikipedia.org/wiki/Delaunay_triangulation), through the really fast [delaunator](https://docs.rs/delaunator/*/delaunator) crate,
 //! and then extracting its dual Voronoi diagram.
 //!
-//! Both the Voronoi graph and its dual Delauney graph are exposed through the [Voronoi] type.
+//! Both the Voronoi graph and its dual Delaunay graph are exposed through the [Voronoi] type.
 //!
 //! # Example
 //!
@@ -31,7 +31,7 @@
 //!
 //! // or probe cells individually
 //! let my_cell = my_voronoi.cell(1);
-//! println!("Second cell has site {:?}, voronoi vertices {:?} and delauney triangles {:?}",
+//! println!("Second cell has site {:?}, voronoi vertices {:?} and delaunay triangles {:?}",
 //!     my_cell.site_position(),
 //!     my_cell.iter_vertices().collect::<Vec<&Point>>(),
 //!     my_cell.iter_triangles().collect::<Vec<usize>>());
@@ -85,7 +85,7 @@ impl Default for ClipBehavior {
     }
 }
 
-/// The dual Delauney-Voronoi graph.
+/// The dual Delaunay-Voronoi graph.
 ///
 /// To obtain an instance of this type, use [VoronoiBuilder].
 pub struct Voronoi {
@@ -106,7 +106,7 @@ pub struct Voronoi {
     /// A map of each site to its left-most incomig half-edge.
     site_to_incoming_leftmost_halfedge: Vec<usize>,
 
-    /// A map for each voronoi cell and the associated delauney triangles whose centroids are the cell's vertices.
+    /// A map for each voronoi cell and the associated delaunay triangles whose centroids are the cell's vertices.
     /// For any site ```i```, the associated voronoi cell associated triangles are represented by ```cell_triangles[i]```.
     cells: Vec<Vec<usize>>
 }
@@ -228,7 +228,7 @@ impl Voronoi {
     /// Gets the a vector of the Voronoi cell vertices. These vertices are indexed by [Self::cells()].
     /// Consider using [Self::iter_cells()] or [Self::cell()] instead for a more ergonomic way of accessing cell information.
     ///
-    /// For a given Voronoi cell, its vertices are the circumcenters of its associated Delauney triangles.
+    /// For a given Voronoi cell, its vertices are the circumcenters of its associated Delaunay triangles.
     /// Values whose indexes are greater than ```sites.len() - 1``` are not actual triangle circumcenters but
     /// Voronoi cell vertices added to "close" sites on the convex hull or otherwise used for clipping edges that fell outside the bounding box region.
     ///
@@ -238,10 +238,10 @@ impl Voronoi {
         &self.circumcenters
     }
 
-    /// Gets a reference to a vector of indices to sites where each triple represents a triangle on the dual Delauney triangulation associated with this Voronoi graph.
+    /// Gets a reference to a vector of indices to sites where each triple represents a triangle on the dual Delaunay triangulation associated with this Voronoi graph.
     /// All triangles are directed counter-clockwise.
     #[inline]
-    pub fn delauney_triangles(&self) -> &Vec<usize> {
+    pub fn delaunay_triangles(&self) -> &Vec<usize> {
         &self.triangulation.triangles
     }
 }
