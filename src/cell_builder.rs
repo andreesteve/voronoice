@@ -1010,13 +1010,13 @@ mod test {
     #[test]
     fn extend_and_close_hull_test() {
         let mut builder = new_builder(vec![
-            Point { x: 0.5, y: 0.625 }, // vertex to be extended
+            Point { x: -0.5, y: -0.25 }, // vertex to be extended
         ]);
         builder.calculate_corners();
         let sites = vec![
-            Point { x: 1.0, y: 1.0 },
-            Point { x: 0.0, y: 1.0 },
-            Point { x: 0.5, y: 0.0 },
+            Point { x: -0.5, y: 1.0 },
+            Point { x: -1.5, y: -1.0 },
+            Point { x: 0.5, y: -1.0 },
         ];
         assert_eq!(builder.vertices[0], utils::cicumcenter(&sites[0], &sites[1], &sites[2]), "I got the circumcenter wrong.");
         let hull_sites = (0..sites.len()).collect();
@@ -1028,21 +1028,21 @@ mod test {
         builder.extend_and_close_hull(&sites, &hull_sites, &mut cells);
 
         assert_cell_vertex_without_bounds(&builder, &cells[0], "First cell", vec![
-            Point { x: 0.5, y: 0.625 },
-            Point { x: 32.75, y: -15.5 },
-            Point { x: 0.5, y: 33.0 },
+            Point { x: -0.5, y: -0.25 },
+            Point { x: 7.155417527999327, y: 3.5777087639996634 },
+            Point { x: -8.155417527999326, y: 3.5777087639996634 },
         ]);
 
         assert_cell_vertex_without_bounds(&builder, &cells[1], "Second cell", vec![
-            Point { x: 0.5, y: 0.625 },
-            Point { x: 0.5, y: 33.0 },
-            Point { x: -31.75, y: -15.5 },
+            Point { x: -0.5, y: -0.25 },
+            Point { x: -8.155417527999326, y: 3.5777087639996634 },
+            Point { x: -0.5, y: -9.0 },
         ]);
 
         assert_cell_vertex_without_bounds(&builder, &cells[2], "Third cell", vec![
-            Point { x: 0.5, y: 0.625 },
-            Point { x: -31.75, y: -15.5 },
-            Point { x: 32.75, y: -15.5 },
+            Point { x: -0.5, y: -0.25 },
+            Point { x: -0.5, y: -9.0 },
+            Point { x: 7.155417527999327, y: 3.5777087639996634 },
         ]);
     }
 }
