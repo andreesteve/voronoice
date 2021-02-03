@@ -44,9 +44,9 @@ impl<'v> VoronoiCell<'v> {
         &self.voronoi.sites[self.site]
     }
 
-    /// Gets an iterator the indices of the triangles of the dual Delauney triangulation that are associated with this cell.
-    /// The Voronoi cell vertices are the circumcenters of the associated Delauney triangles.
-    /// This is a way to index into the underlying Delauney triangles and this cell's vertices.
+    /// Gets an iterator the indices of the triangles of the dual Delaunay triangulation that are associated with this cell.
+    /// The Voronoi cell vertices are the circumcenters of the associated Delaunay triangles.
+    /// This is a way to index into the underlying Delaunay triangles and this cell's vertices.
     ///
     /// If this cell is on the hull of the diagram (```cell.is_on_hull() == true```), or has had one of its edges clipped,
     #[inline]
@@ -108,7 +108,7 @@ impl<'v> fmt::Debug for  VoronoiCell<'v> {
 
         #[derive(Debug)]
         struct Cellvertices {
-            /// Each vertex is the circumcenter of a associated Delauney triangle
+            /// Each vertex is the circumcenter of a associated Delaunay triangle
             triangles: Vec<usize>,
             positions: Vec<Point>
         }

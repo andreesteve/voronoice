@@ -85,7 +85,7 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
             let neighbor_site = self.iter.triangulation.triangles[incoming];
 
             // FIXME: topological neighbors may not be visually connected after clipping
-            // voronoi sites are topologically connected to other sites based if there is a delauney edge between then
+            // voronoi sites are topologically connected to other sites based if there is a delaunay edge between then
             // however clipping may remove that edge and the associated cells in the voronoi diagram may not share a common edge
             //if common_edge(self.voronoi.cells().get(neighbor_site).unwrap(), self.voronoi.cells().get(self.source_site).unwrap()) {
                 site = Some(neighbor_site);
@@ -231,6 +231,7 @@ mod test {
             [0.2, -0.5],
             [0.3, -0.5],
         */
+
         // need to find a way to remove delauney neighbors whose voronoi edges were clipped out
         // comparing edge is one way, comparing circumcenters is another https://github.com/d3/d3-delaunay/pull/98/files
         let sites = vec![Point { x: -1.0, y: -1.0 }, Point { x: 0.0, y: -1.0 }, Point { x: -0.45, y: -0.95 }];

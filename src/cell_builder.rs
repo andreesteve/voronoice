@@ -71,7 +71,7 @@ impl CellBuilder {
         }
     }
 
-    /// Extend, towards the bounding box edge, the `voronoi_vertex` orthogonally to the Delauney triangle edge represented by `a` -> `b`.
+    /// Extend, towards the bounding box edge, the `voronoi_vertex` orthogonally to the Delaunay triangle edge represented by `a` -> `b`.
     /// Creates the new vertex on the bounding box edge and returns it index on the `vertices` collection.
     fn extend_vertex(&mut self, site_a: &Point, site_b: &Point, scale: f64) -> usize {
         // the vertex is the circumcenter of the triangle of edge a->b
