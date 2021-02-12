@@ -1,7 +1,8 @@
 use std::{assert_eq, iter::once};
-use delaunator::{EMPTY, Triangulation};
+use delaunator::{EMPTY, Triangulation, EPSILON};
 use utils::triangle_of_edge;
 use super::{ClipBehavior, Point, bounding_box::{self, *}, iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
+use approx::abs_diff_eq;
 
 pub struct CellBuilder {
     vertices: Vec<Point>,
@@ -76,8 +77,13 @@ impl CellBuilder {
         // the vertex is the circumcenter of the triangle of edge a->b
         // the vertex is on the a->b bisector line, thus we can take midpoint of a->b and vertex for the orthogonal projection
         let edge_midpoint = Point { x: (site_a.x + site_b.x) / 2.0, y: (site_a.y + site_b.y) / 2.0 };
+        
         // clockwise rotation 90 degree from edge direction
-        let orthogonal = Point { x: site_b.y - site_a.y, y: site_a.x - site_b.x };
+        let mut orthogonal = Point { x: site_b.y - site_a.y, y: site_a.x - site_b.x };
+        // normalizing the orthogonal vector
+        let ortho_length = (orthogonal.x * orthogonal.x + orthogonal.y * orthogonal.y).sqrt();
+        orthogonal.x = orthogonal.x * (1. / ortho_length);
+        orthogonal.y = orthogonal.y * (1. / ortho_length);
 
         let projected = Point { x: edge_midpoint.x + (scale * orthogonal.x), y: edge_midpoint.y + (scale * orthogonal.y) };
         let index = self.vertices.len();
@@ -93,7 +99,7 @@ impl CellBuilder {
         // Add this extended vertex to the cell, and the previous cell extended vertex as well
         // Thus closing the cell. When clip logic runs for this cell, it will clip the extensions as needed
         // Set a extension scale to be more than the bounding box diagonal, to make sure we get nice clipped corners
-        let scale = 2.0 * self.bounding_box.width() * self.bounding_box.height();
+        let scale = self.bounding_box.width() + self.bounding_box.height();
 
         // handle first
         let &last_site = hull_sites.last().expect("");
@@ -232,7 +238,7 @@ impl CellBuilder {
     /// Cells edges be returned as `EMPTY` indicating that the edge is completely outside the box and should be excluded.
     fn clip_cell_edge(&mut self, a: usize, b: usize) -> (usize, usize) {
         // we are iterating a -> b, counter-clockwise on the edges of the cell (cell may be open)
-        // at lest one intersection, possibilities
+        // at least one intersection, possibilities
         // 1) a -> box edge -> box edge -> b            a and b outside box ---> need to clip edge at both intersections
         // 2) a -> box edge_same, box edge_same -> b    same as 1, but a->b is a line parallel to one of the box edges ---> keep edge (excluding edge would open cell)
         // 3) a -> box corner, box corner -> b          same as 1, but intersection is right on box corner, or line is parallel to one of the box edges ---> keep edge (excluding edge would open cell)
@@ -247,7 +253,7 @@ impl CellBuilder {
 
         if !self.bounding_box.is_inside(pa) {
             // a is outside, b is inside or outside
-            // clip will tell us how many intersections between a->b, and clip_a will come first than clip_b
+            // clip will tell us how many intersections between a->b, and clip_a will come first, then clip_b
             let a_to_b = Point { x: pb.x - pa.x, y: pb.y - pa.y };
             let (clip_a, clip_b) = self.bounding_box.project_ray(pa, &a_to_b);
 
@@ -266,9 +272,10 @@ impl CellBuilder {
                             // a -> box -> b; edge crosses box (case 1,2,3), we clip this ray twice
                             new_b = v_index + 1;
 
-                            if clip_a == clip_b {
+                            if abs_diff_eq!(clip_a.x, clip_b.x, epsilon = EPSILON) && abs_diff_eq!(clip_a.y, clip_b.y, epsilon = EPSILON) {
+                            // Sadly, the nearly_equals-function is private in delaunator
+                            //if clip_a.nearly_equals(clip_b) {
                                 // case 3 - a and b outside box, intersection at the corner
-                                // FIXME: consider distance epislon comparison instead
                                 // intersection at same point (corner)
                                 new_b = EMPTY;
 
@@ -427,10 +434,14 @@ impl CellBuilder {
 
     pub fn calculate_corners(&mut self) {
         // add all corners to the vertice list as they will be used for closing cells
+        let width = self.bounding_box.width();
+        let height = self.bounding_box.height();
+
         let top_right = self.bounding_box.top_right().clone();
-        let mut top_left = top_right.clone(); top_left.x *= -1.0;
-        let mut bottom_left = top_left.clone(); bottom_left.y *= -1.0;
-        let mut bottom_right = top_right.clone(); bottom_right.y *= -1.0;
+        let mut top_left = top_right.clone(); top_left.x -= width;
+        let mut bottom_left = top_left.clone(); bottom_left.y -= height;
+        let mut bottom_right = top_right.clone(); bottom_right.y -= height;
+
         self.vertices.push(top_right);
         self.vertices.push(top_left);
         self.vertices.push(bottom_left);
@@ -999,13 +1010,13 @@ mod test {
     #[test]
     fn extend_and_close_hull_test() {
         let mut builder = new_builder(vec![
-            Point { x: 0.5, y: 0.625 }, // vertex to be extended
+            Point { x: -0.5, y: -0.25 }, // vertex to be extended
         ]);
         builder.calculate_corners();
         let sites = vec![
-            Point { x: 1.0, y: 1.0 },
-            Point { x: 0.0, y: 1.0 },
-            Point { x: 0.5, y: 0.0 },
+            Point { x: -0.5, y: 1.0 },
+            Point { x: -1.5, y: -1.0 },
+            Point { x: 0.5, y: -1.0 },
         ];
         assert_eq!(builder.vertices[0], utils::cicumcenter(&sites[0], &sites[1], &sites[2]), "I got the circumcenter wrong.");
         let hull_sites = (0..sites.len()).collect();
@@ -1017,21 +1028,21 @@ mod test {
         builder.extend_and_close_hull(&sites, &hull_sites, &mut cells);
 
         assert_cell_vertex_without_bounds(&builder, &cells[0], "First cell", vec![
-            Point { x: 0.5, y: 0.625 },
-            Point { x: 32.75, y: -15.5 },
-            Point { x: 0.5, y: 33.0 },
+            Point { x: -0.5, y: -0.25 },
+            Point { x: 7.155417527999327, y: 3.5777087639996634 },
+            Point { x: -8.155417527999326, y: 3.5777087639996634 },
         ]);
 
         assert_cell_vertex_without_bounds(&builder, &cells[1], "Second cell", vec![
-            Point { x: 0.5, y: 0.625 },
-            Point { x: 0.5, y: 33.0 },
-            Point { x: -31.75, y: -15.5 },
+            Point { x: -0.5, y: -0.25 },
+            Point { x: -8.155417527999326, y: 3.5777087639996634 },
+            Point { x: -0.5, y: -9.0 },
         ]);
 
         assert_cell_vertex_without_bounds(&builder, &cells[2], "Third cell", vec![
-            Point { x: 0.5, y: 0.625 },
-            Point { x: -31.75, y: -15.5 },
-            Point { x: 32.75, y: -15.5 },
+            Point { x: -0.5, y: -0.25 },
+            Point { x: -0.5, y: -9.0 },
+            Point { x: 7.155417527999327, y: 3.5777087639996634 },
         ]);
     }
 }
