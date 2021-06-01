@@ -87,10 +87,8 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
             // FIXME: topological neighbors may not be visually connected after clipping
             // voronoi sites are topologically connected to other sites based if there is a delaunay edge between then
             // however clipping may remove that edge and the associated cells in the voronoi diagram may not share a common edge
-            //if common_edge(self.voronoi.cells().get(neighbor_site).unwrap(), self.voronoi.cells().get(self.source_site).unwrap()) {
-                site = Some(neighbor_site);
-                break;
-            //}
+            site = Some(neighbor_site);
+            break;
         }
 
         if site.is_some() {
@@ -103,11 +101,7 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
                 self.last = EMPTY;
 
                 let neighbor_site = self.iter.triangulation.triangles[next_halfedge(outgoing)];
-                //if common_edge(self.voronoi.cells().get(neighbor_site).unwrap(), self.voronoi.cells().get(self.source_site).unwrap()) {
-                    Some(neighbor_site)
-                //} else {
-                    //None
-                //}
+                Some(neighbor_site)
             } else {
                 // this means site is not on hull, and we have already iterated over all neighbors
                 None

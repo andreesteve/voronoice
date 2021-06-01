@@ -153,7 +153,7 @@ impl BoundingBox {
             let right_y = (boundary_right * c) + d;
             let left_y = (boundary_left * c) + d;
 
-            if right_y <= boundary_top 
+            if right_y <= boundary_top
             && right_y >= boundary_bottom {
                 f = Some(Point { x: boundary_right, y: right_y });
             }
@@ -195,7 +195,7 @@ impl BoundingBox {
                 h = Some(Point { x: top_x, y: boundary_top })
             }
 
-            if bottom_x <= boundary_right 
+            if bottom_x <= boundary_right
             && bottom_x >= boundary_left {
                 i = Some(Point { x: bottom_x, y: boundary_bottom })
             }
@@ -423,7 +423,7 @@ mod tests {
         let c = -0.8;
         let d = 1.0;
         let (a, b) = bbox.project_ray(&line(2.0, c, d), &direction(&line(-20.0, c, d), &line(2.0, c, d)));
-        assert!(a.is_some() && b.is_some(), format!("Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone()));
+        assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
         assert!(
             abs_diff_eq!(line(1.0, c, d).x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
             && abs_diff_eq!(line(1.0, c, d).y, a.unwrap().y, epsilon = 4. * std::f64::EPSILON)
@@ -468,7 +468,7 @@ mod tests {
                         x: base_origin.x * (-1. as f64).powi(i),
                         y: base_origin.y * (-1. as f64).powi(j),
                     };
-        
+
                     let bbox = BoundingBox::new(
                         origin.clone(),
                         width,
@@ -484,36 +484,36 @@ mod tests {
                     let point = &Point { x: origin.x + width, y: origin.y };
                     let dir = &Point { x: -0.1, y: 0.0 };
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), format!("Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone()));
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
                     let expected_intersection_a = Point{x: right, y: origin.y};
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit right side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit right side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     let expected_intersection_b = Point{x: left, y: origin.y};
                     assert!(
                         abs_diff_eq!(expected_intersection_b.x, b.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_b.y, b.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("And then hit left side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b)
+                        , "And then hit left side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b
                     );
 
                     // point to the left of left side, directed to origin
                     let point = &Point { x: origin.x - width, y: origin.y };
                     let dir = &Point { x: 0.1, y: 0.0 };
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), format!("Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone()));
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
                     let expected_intersection_a = Point{x: left, y: origin.y};
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit left side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit left side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     let expected_intersection_b = Point{x: right, y: origin.y};
                     assert!(
                         abs_diff_eq!(expected_intersection_b.x, b.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_b.y, b.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("And then hit right side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b)
+                        , "And then hit right side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b
                     );
 
                     // point to the left of right side, inside, directed to origin
@@ -525,7 +525,7 @@ mod tests {
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit left side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit left side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     assert_eq!(None, b, "And only that");
 
@@ -538,7 +538,7 @@ mod tests {
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit right side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit right side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     assert_eq!(None, b, "And only that");
 
@@ -546,36 +546,36 @@ mod tests {
                     let point = &Point { x: origin.x, y: origin.y + height};
                     let dir = &Point { x: 0.0, y: -0.1 };
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), format!("Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone()));
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
                     let expected_intersection_a = Point{x: origin.x, y: top};
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit top side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit top side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     let expected_intersection_b = Point{x: origin.x, y: bottom};
                     assert!(
                         abs_diff_eq!(expected_intersection_b.x, b.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_b.y, b.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("And then hit bottom side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b)
+                        , "And then hit bottom side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b
                     );
 
                     // point to the bottom of the bottom side, directed to origin
                     let point = &Point { x: origin.x, y: origin.y - height};
                     let dir = &Point { x: 0.0, y: 0.1 };
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), format!("Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone()));
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
                     let expected_intersection_a = Point{x: origin.x, y: bottom};
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit bottom side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit bottom side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     let expected_intersection_b = Point{x: origin.x, y: top};
                     assert!(
                         abs_diff_eq!(expected_intersection_b.x, b.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_b.y, b.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("And then hit top side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b)
+                        , "And then hit top side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b
                     );
 
                     // point to the bottom of top side, inside, directed to origin
@@ -587,7 +587,7 @@ mod tests {
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit bottom side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit bottom side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     assert_eq!(None, b, "And only that");
 
@@ -600,7 +600,7 @@ mod tests {
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit top side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit top side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     assert_eq!(None, b, "And only that");
 
@@ -613,7 +613,7 @@ mod tests {
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit bottom side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit bottom side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     assert_eq!(None, b, "And only that");
 
@@ -623,18 +623,18 @@ mod tests {
                     let point = &line(right + 0.5, c, d); // right of right side
                     let dir = &direction(&line(left - 2., c, d), point); // pointing towards box
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), format!("Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone()));
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
                     let expected_intersection_a = line(right, c, d);
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit right side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit right side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     let expected_intersection_b = line(origin.x, c, d);
                     assert!(
                         abs_diff_eq!(line(origin.x, c, d).x, b.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(line(origin.x, c, d).y, b.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("And then top side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b)
+                        , "And then top side. found: {:?}, expected: {:?}", b.unwrap(), expected_intersection_b
                     );
 
                     // point to the top-left of of the origin, inside, pointing up-left outwards
@@ -648,7 +648,7 @@ mod tests {
                     assert!(
                         abs_diff_eq!(expected_intersection_a.x, a.clone().unwrap().x, epsilon = 4. * std::f64::EPSILON)
                         && abs_diff_eq!(expected_intersection_a.y, a.clone().unwrap().y, epsilon = 4. * std::f64::EPSILON)
-                        , format!("Expected to hit left side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a)
+                        , "Expected to hit left side first. found: {:?}, expected: {:?}", a.unwrap(), expected_intersection_a
                     );
                     assert_eq!(None, b, "And only that");
 
