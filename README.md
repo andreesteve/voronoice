@@ -63,3 +63,10 @@ Here are some generation times on a 3.5GHz Core i7 from 2012.
 | 10,000,000       | 5.1 s        |
 
 A comparison benchmark with other Rust Voronoi diagram generating libraries can be found [here](https://github.com/andreesteve/voronoi-benchmark-rs).
+
+# Examples
+
+You can run the examples by ```cargo run --example <name>```
+
+* [image](examples/image.rs) - given an input image and factor, generates a color-averaged image by overlaying a Voronoi diagram
+* [voronoice-inspector](https://github.com/andreesteve/voronoice-inspector) - an interactive tool to render and inspect Voronoi diagrams

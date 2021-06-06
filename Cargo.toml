@@ -17,6 +17,7 @@ approx = { version = "~0.4" }
 [dev-dependencies]
 criterion = "0.3.3"
 rand = "0.8.1"
+image = "0.23.14"
 
 [[bench]]
 name = "quick"
@@ -29,3 +30,7 @@ harness = false
 [[bench]]
 name = "compare_with_deps"
 harness = false
+
+[[example]]
+name = "image"
+path = "examples/image.rs"
