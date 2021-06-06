@@ -52,11 +52,12 @@ impl<'v> VoronoiCell<'v> {
         self.site
     }
 
-    /// Gets an iterator the indices of the triangles of the dual Delaunay triangulation that are associated with this cell.
+    /// Gets an iterator for the indices of the triangles in the dual Delaunay triangulation that are associated with this cell.
     /// The Voronoi cell vertices are the circumcenters of the associated Delaunay triangles.
     /// This is a way to index into the underlying Delaunay triangles and this cell's vertices.
     ///
-    /// If this cell is on the hull of the diagram (```cell.is_on_hull() == true```), or has had one of its edges clipped,
+    /// If this cell is on the hull of the diagram (```cell.is_on_hull() == true```), or has had one of its edges clipped, some indices will not match to
+    /// Delaunay triangles, but to virtual points added during the process of hull closing and clipping. These values will still correctly index into the [Voronoi::vertices()] vector.
     #[inline]
     pub fn iter_triangles(&self) -> impl Iterator<Item = usize> + 'v + Clone {
         self.voronoi.cells[self.site].iter().copied()

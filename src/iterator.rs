@@ -114,7 +114,11 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
     }
 }
 
-/// Iterator that produces a path between two point.
+/// Iterator that produces a path between two points in the Voronoi diagram.
+///
+/// This will be the shortest path linking the starting cell to the cell that contains the destination point.
+/// If the destionation point is not contained in the Voronoi diagram, the final cell in the path will be the
+/// closest to the destination point.
 #[derive(Clone)]
 pub struct CellPathIterator<'t, 'p> {
     site: usize,
