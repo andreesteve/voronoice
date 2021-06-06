@@ -1,6 +1,6 @@
 [package]
 name = "voronoice"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2018"
 authors = ["Andre Esteve <andreesteve@gmail.com>"]
 description = "A nice and fast way to construct 2D Voronoi Diagrams"
