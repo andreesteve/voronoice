@@ -1,6 +1,8 @@
 use std::fmt;
 use delaunator::EMPTY;
 
+use crate::CellPathIterator;
+
 use super::{
     Voronoi,
     Point,
@@ -44,6 +46,12 @@ impl<'v> VoronoiCell<'v> {
         &self.voronoi.sites[self.site]
     }
 
+    /// Gets the index associated with the site for this cell.
+    #[inline]
+    pub fn site(&self) -> usize {
+        self.site
+    }
+
     /// Gets an iterator the indices of the triangles of the dual Delaunay triangulation that are associated with this cell.
     /// The Voronoi cell vertices are the circumcenters of the associated Delaunay triangles.
     /// This is a way to index into the underlying Delaunay triangles and this cell's vertices.
@@ -79,6 +87,12 @@ impl<'v> VoronoiCell<'v> {
     #[inline]
     pub fn iter_neighbors(&self) -> NeighborSiteIterator {
         NeighborSiteIterator::new(self.voronoi, self.site)
+    }
+
+    /// Gets an iterator that returns the shortest path on the Voronoi diagram to the destination point, starting from the current cell.
+    #[inline]
+    pub fn iter_path<'p>(&self, dest: &'p Point) -> CellPathIterator<'v, 'p> {
+        CellPathIterator::new(self.voronoi, self.site, dest)
     }
 
     /// Returns a boolean indicating whether this cell is on the hull (edge) of the diagram.

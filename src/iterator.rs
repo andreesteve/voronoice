@@ -62,6 +62,8 @@ pub struct NeighborSiteIterator<'t> {
 impl<'t> NeighborSiteIterator<'t> {
     /// Creates iterator based on the site.
     pub fn new(voronoi: &'t Voronoi, site: usize) -> Self {
+        assert!(site < voronoi.sites.len(), "site {} does not exist", site);
+
         let incoming_leftmost_edge = voronoi.site_to_incoming_leftmost_halfedge[site];
         Self {
             iter: EdgesAroundSiteIterator::new(&voronoi.triangulation, incoming_leftmost_edge),
@@ -124,6 +126,8 @@ pub struct CellPathIterator<'t, 'p> {
 impl<'t, 'p> CellPathIterator<'t, 'p> {
     /// Creates iterator based on the site and destination point.
     pub fn new(voronoi: &'t Voronoi, site: usize, dest: &'p Point) -> Self {
+        assert!(site < voronoi.sites.len(), "site {} does not exist", site);
+
         let mut s = Self {
             site,
             dest,
@@ -135,9 +139,7 @@ impl<'t, 'p> CellPathIterator<'t, 'p> {
 
         s
     }
-}
 
-impl<'t, 'p> CellPathIterator<'t, 'p> {
     fn dist2_for_site(&self, site: usize) -> f64 {
         let point = &self.voronoi.sites[site];
         dist2(point, &self.dest)
@@ -151,26 +153,26 @@ impl<'t, 'p> Iterator for CellPathIterator<'t, 'p> {
     fn next(&mut self) -> Option<Self::Item> {
         let current_size = self.site;
 
-        // take the neighbor that is closest to dest
-        let closest = NeighborSiteIterator::new(self.voronoi, self.site)
-            .map(|n| (n, self.dist2_for_site(n)))
-            .min_by(|(_, dist0), (_, dist1)| dist0.partial_cmp(dist1).unwrap());
+        if current_size != EMPTY {
+            // take the neighbor that is closest to dest
+            let closest = NeighborSiteIterator::new(self.voronoi, self.site)
+                .map(|n| (n, self.dist2_for_site(n)))
+                .min_by(|(_, dist0), (_, dist1)| dist0.partial_cmp(dist1).unwrap());
 
-        // if neighbor is closer to destination than we are, it is next in the path
-        if let Some((n, dist)) = closest {
-            if dist < self.distance {
-                self.distance = dist;
-                self.site = n;
+            // if neighbor is closer to destination than we are, it is next in the path
+            if let Some((n, dist)) = closest {
+                if dist < self.distance {
+                    self.distance = dist;
+                    self.site = n;
+                } else {
+                    // reached end
+                    self.site = EMPTY;
+                }
             } else {
                 // reached end
                 self.site = EMPTY;
             }
-        } else {
-            // reached end
-            self.site = EMPTY;
-        }
 
-        if current_size != EMPTY {
             Some(current_size)
         } else {
             None
