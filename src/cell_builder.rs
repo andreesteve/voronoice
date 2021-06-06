@@ -56,6 +56,35 @@ impl CellBuilder {
             }
         },"The first vertex of each voronoi cell on the hull must always be the circumcenter of the triangle associated to the leftmost incoming half-edge.");
 
+        debug_assert!({
+            let invalid_hull_sites: Vec<usize> = hull.iter().copied().filter(|&hull_site| {
+                triangulation.halfedges[site_to_incoming_leftmost_halfedge[hull_site]] != EMPTY
+            }).collect();
+
+            if !invalid_hull_sites.is_empty() {
+                println!("The following hull sites have incorrect leftmost halfedge cached: {:?}", invalid_hull_sites);
+                false
+            } else {
+                true
+            }
+        },"The left most edge for hull sites must not have a half-edge.");
+
+        debug_assert!({
+            let invalid_hull_sites: Vec<usize> = site_to_incoming_leftmost_halfedge.iter().enumerate()
+                .filter(|(site, &edge)| triangulation.halfedges[edge] == EMPTY && !hull.contains(site))
+                .map(|(site, _)| site)
+                .collect();
+
+            println!("Hull sites are: {:?}", hull);
+
+            if !invalid_hull_sites.is_empty() {
+                println!("The following sites are not on the hull list but they are supposed to because they have an edge without an associated half-edge: {:?}", invalid_hull_sites);
+                false
+            } else {
+                true
+            }
+        },"The all sites whose left most edge has no associated half-edge must be on the hull.");
+
         self.extend_and_close_hull(sites, &hull, &mut cells);
 
         // clip cells
@@ -77,7 +106,7 @@ impl CellBuilder {
         // the vertex is the circumcenter of the triangle of edge a->b
         // the vertex is on the a->b bisector line, thus we can take midpoint of a->b and vertex for the orthogonal projection
         let edge_midpoint = Point { x: (site_a.x + site_b.x) / 2.0, y: (site_a.y + site_b.y) / 2.0 };
-        
+
         // clockwise rotation 90 degree from edge direction
         let mut orthogonal = Point { x: site_b.y - site_a.y, y: site_a.x - site_b.x };
         // normalizing the orthogonal vector

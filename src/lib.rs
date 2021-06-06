@@ -244,6 +244,11 @@ impl Voronoi {
     pub fn delaunay_triangles(&self) -> &Vec<usize> {
         &self.triangulation.triangles
     }
+
+    /// Gets the number of Delaunay triangles.
+    fn number_of_triangles(&self) -> usize {
+        self.triangulation.triangles.len() / 3
+    }
 }
 
 #[cfg(test)]

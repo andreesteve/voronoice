@@ -19,6 +19,7 @@ pub struct VoronoiCell<'v> {
 }
 
 impl<'v> VoronoiCell<'v> {
+    #[inline]
     pub (super) fn new(site: usize, voronoi: &'v Voronoi) -> Self {
         Self {
             site,
@@ -97,10 +98,15 @@ impl<'v> VoronoiCell<'v> {
     }
 
     /// Returns a boolean indicating whether this cell is on the hull (edge) of the diagram.
+    ///
+    /// A Voronoi cell is on the hull if its associated site is on the Delaunay hull or if clipping is enabled and the cell intersects with the bounding box.
     pub fn is_on_hull(&self) -> bool {
         // if there is no half-edge associated with the left-most edge, the edge is on the hull
         let incoming_leftmost_edge = self.voronoi.site_to_incoming_leftmost_halfedge[self.site];
         self.voronoi.triangulation.halfedges[incoming_leftmost_edge] == EMPTY
+            // if the cell vertex index is higher than the # of triangles/circumcenters, it means the vertex was added either because
+            // it was extending a hull cell or because of clipping (agaisnt bounding box), thus the cell is on the hull
+            || self.iter_triangles().any(|t| t > self.voronoi.number_of_triangles())
     }
 }
 
