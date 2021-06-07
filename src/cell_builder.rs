@@ -75,8 +75,6 @@ impl CellBuilder {
                 .map(|(site, _)| site)
                 .collect();
 
-            println!("Hull sites are: {:?}", hull);
-
             if !invalid_hull_sites.is_empty() {
                 println!("The following sites are not on the hull list but they are supposed to because they have an edge without an associated half-edge: {:?}", invalid_hull_sites);
                 false
