@@ -245,6 +245,11 @@ impl Voronoi {
         &self.triangulation.triangles
     }
 
+    /// Gets a reference to the bounding box.
+    pub fn bounding_box(&self) -> &BoundingBox {
+        &self.bounding_box
+    }
+
     /// Gets the number of Delaunay triangles.
     fn number_of_triangles(&self) -> usize {
         self.triangulation.triangles.len() / 3
