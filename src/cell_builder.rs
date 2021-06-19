@@ -256,7 +256,14 @@ impl CellBuilder {
             };
 
             // this many vertices were added between A and B, this means values were shifted right
-            open_edge_index_adjustment += self.link_vertices_around_box_edge(cell, a, b);
+            let new_vertices = self.link_vertices_around_box_edge(cell, a, b);
+
+            // only add to the adjustment if this is not the last-first edge
+            // because any new vertices will be added to the end of the array
+            // thus they do not shift the position of the other vertices
+            if open_edges[i] != 0 {
+                open_edge_index_adjustment += new_vertices;
+            }
         }
 
         // if after closing, we are left with a line, this cell should be removed
