@@ -12,7 +12,6 @@ readme = "README.md"
 
 [dependencies]
 delaunator = { version = "~0.2" }
-approx = { version = "~0.4" }
 
 [dev-dependencies]
 criterion = "0.3.3"

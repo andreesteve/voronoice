@@ -150,6 +150,7 @@ impl Voronoi {
         // create map between site and its left-most incoming half-edge
         // this is especially important for the sites along the convex hull boundary when iterating over its neighoring sites
         let mut site_to_incoming_leftmost_halfedge = vec![EMPTY; num_of_sites];
+
         for e in 0..triangulation.triangles.len() {
             let s = site_of_incoming(&triangulation, e);
             if site_to_incoming_leftmost_halfedge[s] == EMPTY || triangulation.halfedges[e] == EMPTY {
@@ -259,7 +260,6 @@ impl Voronoi {
 #[cfg(test)]
 mod tests {
     use rand::Rng;
-
     use super::*;
 
     fn create_random_builder(size: usize) -> VoronoiBuilder {
@@ -283,5 +283,51 @@ mod tests {
         create_random_builder(100_000)
             .build()
             .expect("Some voronoi expected.");
+    }
+
+    /// https://github.com/andreesteve/voronoice/issues/10
+    #[test]
+    fn issue10() {
+        let sites: Vec<_> = [
+            [0.5071359338391455, -0.3236832077937956],
+            [0.3830151816637668, 0.5627457940628474],
+            [1.5196837554166323, -0.2974359857979777],
+            [-0.6149866437812772, 1.0450423584955024],
+            [-0.21916717030359378, -2.702309985665537],
+            [-0.3128297966002196, 0.32627037936130365],
+            [-0.2585335697093173, -3.2042352606594826],
+            [-1.5847858399307686, 2.3754785777859544],
+            [1., 1.],
+            [-1., 1.],
+            [-1., -1.],
+            [1., -1.],
+            [4.666589448684871, -1.160460175259872],
+            [4.95915032227072, 0.7037936855165575],
+            [-2.2472073777517436, 3.363632890638188],
+            [-0.30704845634464, -4.6397107833345075],
+            [-0.5217818413507629, 1.],
+            [1., 0.5817628040530143],
+            [1., -0.3109072062236856],
+            [1., 0.09583827903291398],
+            [-0.5217818413507627, 1.],
+            [-0.59605176954064, 1.],
+            [-0.2718132304410775, -1.],
+            [0.3006256102638203, -1.],
+            [-0.7824622340091141, -1.],
+            [-1., -0.08479064614066445],
+            [1., 0.09583827903291409],
+            [1., 0.5817628040530143],
+            [-1., -0.08479064614066623],
+            [-0.7824622340091145, -1.],
+            [-0.2718132304410775, -1.],
+            [-0.5960517695406401, 1.],
+        ].iter().map(|p| Point { x: p[0], y: p[1] }).collect();
+
+        let r = VoronoiBuilder::default()
+            .set_bounding_box(BoundingBox::default())
+            .set_sites(sites)
+            .build();
+
+        r.unwrap().cells().len();
     }
 }

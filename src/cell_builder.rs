@@ -1,9 +1,11 @@
 use std::{assert_eq, iter::once};
 use delaunator::{EMPTY, Triangulation, EPSILON};
 use utils::triangle_of_edge;
-use super::{ClipBehavior, Point, bounding_box::{self, *}, iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
-use approx::abs_diff_eq;
+use crate::utils::abs_diff_eq;
 
+use super::{ClipBehavior, Point, bounding_box::{self, *}, iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
+
+#[derive(Debug)]
 pub struct CellBuilder {
     vertices: Vec<Point>,
     bounding_box: BoundingBox,
@@ -299,7 +301,7 @@ impl CellBuilder {
                             // a -> box -> b; edge crosses box (case 1,2,3), we clip this ray twice
                             new_b = v_index + 1;
 
-                            if abs_diff_eq!(clip_a.x, clip_b.x, epsilon = EPSILON) && abs_diff_eq!(clip_a.y, clip_b.y, epsilon = EPSILON) {
+                            if abs_diff_eq(clip_a.x, clip_b.x, EPSILON) && abs_diff_eq(clip_a.y, clip_b.y, EPSILON) {
                             // Sadly, the nearly_equals-function is private in delaunator
                             //if clip_a.nearly_equals(clip_b) {
                                 // case 3 - a and b outside box, intersection at the corner
@@ -349,6 +351,13 @@ impl CellBuilder {
             self.vertices.push(clip_b.expect("Vertex 'b' is outside the bounding box. An intersection should have been returned."));
         } // else neither is outside, not need for clipping
 
+        fn assert_on_box_edge(builder: &CellBuilder, i: usize) -> bool {
+            let (top, left) = builder.bounding_box.which_edge(&builder.vertices[i]);
+            left != BoundingBoxLeftRightEdge::None || top != BoundingBoxTopBottomEdge::None
+        }
+        debug_assert!(new_a == a || new_a == EMPTY || assert_on_box_edge(self, new_a), "Edge {} ({:#?}) -> {} ({:#?}) was clipped but endpoint {} ({:#?}) is not on box's edge {:#?}.", a, self.vertices[a], b, self.vertices[b], new_a, self.vertices[new_a], self.bounding_box.which_edge(&self.vertices[new_a]));
+        debug_assert!(new_b == b || new_b == EMPTY || assert_on_box_edge(self, new_b), "Edge {} ({:#?}) -> {} ({:#?}) was clipped but endpoint {} ({:#?}) is not on box's edge {:#?}.", a, self.vertices[a], b, self.vertices[b], new_b, self.vertices[new_b], self.bounding_box.which_edge(&self.vertices[new_b]));
+
         (new_a, new_b)
     }
 
@@ -364,8 +373,8 @@ impl CellBuilder {
         let (b_bt, b_lr) = self.bounding_box.which_edge(pb);
 
         // It is expected that points ARE on the box edge
-        debug_assert!(!(a_bt == BoundingBoxTopBottomEdge::None && a_lr == BoundingBoxLeftRightEdge::None), "Point a ({}) was not located on the box's edge", a);
-        debug_assert!(!(b_bt == BoundingBoxTopBottomEdge::None && b_lr == BoundingBoxLeftRightEdge::None), "Point b ({}) was not located on the box's edge", b);
+        assert!(!(a_bt == BoundingBoxTopBottomEdge::None && a_lr == BoundingBoxLeftRightEdge::None), "Point a ({}) [{:?}] was not located on any of the box's edge", a, pa);
+        assert!(!(b_bt == BoundingBoxTopBottomEdge::None && b_lr == BoundingBoxLeftRightEdge::None), "Point b ({}) [{:?}] was not located on any of the box's edge", b, pb);
 
         // short-circuit for case where a and b are on the same edge, and b is ahead of a, such case there is nothing to do
         if (match (a_bt, b_bt) {

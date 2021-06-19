@@ -52,3 +52,12 @@ pub fn dist2(a: &Point, b: &Point) -> f64 {
     let y = a.y - b.y;
     (x * x) + (y * y)
 }
+
+#[inline]
+pub fn abs_diff_eq(a: f64, b: f64, epsilon: f64) -> bool {
+    (if a > b {
+        a - b
+    } else {
+        b - a
+    }) <= epsilon
+}
