@@ -1,8 +1,6 @@
 use std::fmt;
 use delaunator::EMPTY;
 
-use crate::CellPathIterator;
-
 use super::{
     Voronoi,
     Point,
@@ -93,8 +91,8 @@ impl<'v> VoronoiCell<'v> {
 
     /// Gets an iterator that returns the shortest path on the Voronoi diagram to the destination point, starting from the current cell.
     #[inline]
-    pub fn iter_path<'p>(&self, dest: &'p Point) -> CellPathIterator<'v, 'p> {
-        CellPathIterator::new(self.voronoi, self.site, dest)
+    pub fn iter_path<'p>(&self, dest: Point) ->  impl Iterator<Item = usize> + 'v {
+        crate::iterator::shortest_path_iter(self.voronoi, self.site, dest)
     }
 
     /// Returns a boolean indicating whether this cell is on the hull (edge) of the diagram.

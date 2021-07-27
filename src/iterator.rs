@@ -139,59 +139,49 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
     }
 }
 
-/// Iterator that produces a path between two points in the Voronoi diagram.
+/// Iterator that produces a path between two points in the Voronoi diagram that uses a greed approach to minimizes a cost function.
 ///
-/// This will be the shortest path linking the starting cell to the cell that contains the destination point.
+/// A cost function is provided that calculates the cost of an edge; edges for all neighbors are evaluated and the least costly is taken.
+/// The process is evaluated for the next cell in the path until no edge can be taken that costs less than f64::MAX.
 /// If the destionation point is not contained in the Voronoi diagram, the final cell in the path will be the
 /// closest to the destination point.
 #[derive(Clone)]
-pub struct CellPathIterator<'t, 'p> {
+pub struct CellPathIterator<'t, F> {
     site: usize,
-    dest: &'p Point,
-    distance: f64,
+    cost_fn: F,
     voronoi: &'t Voronoi
 }
 
-impl<'t, 'p> CellPathIterator<'t, 'p> {
-    /// Creates iterator based on the site and destination point.
-    pub fn new(voronoi: &'t Voronoi, site: usize, dest: &'p Point) -> Self {
+impl<'t, F> CellPathIterator<'t, F> {
+    /// Creates iterator based on the starting site and cost function.
+    pub fn new(voronoi: &'t Voronoi, site: usize, cost_fn: F) -> Self {
         assert!(site < voronoi.sites.len(), "site {} does not exist", site);
 
-        let mut s = Self {
+        Self {
             site,
-            dest,
-            voronoi,
-            distance: 0.0
-        };
-
-        s.distance = s.dist2_for_site(site);
-
-        s
-    }
-
-    fn dist2_for_site(&self, site: usize) -> f64 {
-        let point = &self.voronoi.sites[site];
-        dist2(point, &self.dest)
+            cost_fn,
+            voronoi
+        }
     }
 }
 
-impl<'t, 'p> Iterator for CellPathIterator<'t, 'p> {
+impl<'t, F> Iterator for CellPathIterator<'t, F>
+    where F : Fn(usize, usize) -> f64 {
     type Item = usize;
 
     /// Walks current site neighbor and find the next site in the path
     fn next(&mut self) -> Option<Self::Item> {
-        let current_size = self.site;
+        let current_site = self.site;
 
-        if current_size != EMPTY {
-            // take the neighbor that is closest to dest
-            let closest = NeighborSiteIterator::new(self.voronoi, self.site)
-                .map(|n| (n, self.dist2_for_site(n)))
-                .min_by(|(_, dist0), (_, dist1)| dist0.partial_cmp(dist1).unwrap());
+        if current_site != EMPTY {
+            // take the neighbor with least cost
+            let next = NeighborSiteIterator::new(self.voronoi, current_site)
+                .map(|n| (n, (self.cost_fn)(current_site, n)))
+                .min_by(|(_, cost0), (_, cost1)| cost0.partial_cmp(cost1).unwrap());
 
-            // if neighbor is closer to destination than we are, it is next in the path
-            if let Some((n, dist)) = closest {
-                if dist < self.distance {
-                    self.distance = dist;
+            // if next neighbor cost is less than f64::MAX, then we can move to it - it is next in the path
+            if let Some((n, cost)) = next {
+                if cost < f64::MAX {
                     self.site = n;
                 } else {
                     // reached end
@@ -202,11 +192,30 @@ impl<'t, 'p> Iterator for CellPathIterator<'t, 'p> {
                 self.site = EMPTY;
             }
 
-            Some(current_size)
+            Some(current_site)
         } else {
             None
         }
     }
+}
+
+/// Produces an iterator that calculates the shortest path from start to dest.
+///
+/// If destination point is outside voronoi diagram, then the closest point to destination in the voronoi diagram will be returned.
+pub fn shortest_path_iter<'v>(voronoi: &'v Voronoi, start: usize, dest: Point) -> impl Iterator<Item = usize> + 'v {
+    CellPathIterator::new(voronoi, start, move |curr, next| {
+        // calculate distance
+        let dist_to_dest = dist2(&voronoi.sites[curr], &dest);
+        let dist_from_next = dist2(&voronoi.sites[next], &dest);
+
+        if dist_to_dest <= dist_from_next {
+            // if current is closer to dest than next is, make cost to travel to next impossibly high
+            f64::MAX
+        } else {
+            // cost is distance
+            dist_from_next
+        }
+    })
 }
 
 #[cfg(test)]
@@ -281,7 +290,7 @@ mod test {
             .set_sites(sites.clone())
             .build()
             .unwrap();
-        let mut path = CellPathIterator::new(&v, 0, sites.last().unwrap());
+        let mut path = shortest_path_iter(&v, 0, sites.last().unwrap().clone());
         assert_eq!(Some(0), path.next());
         assert_eq!(Some(1), path.next());
         assert_eq!(Some(4), path.next());
@@ -305,7 +314,7 @@ mod test {
             .set_sites(sites.clone())
             .build()
             .unwrap();
-        let mut path = CellPathIterator::new(&v, 0, sites.last().unwrap());
+            let mut path = shortest_path_iter(&v, 0, sites.last().unwrap().clone());
         assert_eq!(Some(0), path.next());
         assert_eq!(Some(1), path.next());
         // this fails because the point 13 is a neighbor of 1; this is technically true if we expand the bounding box to a large value

@@ -92,7 +92,7 @@ fn get_cell(voronoi: &Voronoi, current_site: usize, x: u32, y: u32) -> usize {
     let p = Point { x: x as f64, y: y as f64 };
     voronoi
         .cell(current_site)
-        .iter_path(&p)
+        .iter_path(p)
         .last()
         .expect("Expected to find site that contains point")
 }
