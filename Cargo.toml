@@ -33,3 +33,7 @@ harness = false
 [[example]]
 name = "image"
 path = "examples/image.rs"
+
+[[example]]
+name = "svg"
+path = "examples/svg.rs"
