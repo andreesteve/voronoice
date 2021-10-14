@@ -63,6 +63,9 @@ impl<'v> VoronoiCell<'v> {
     }
 
     /// Gets an iterator for the vertices of this cell.
+    ///
+    /// Vertices are returned in sequential counter-clockwise order.
+    /// Please see [Self::iter_triangles] and [Voronoi::vertices] for additional details regarding hull closing and clipping effects on vertices.
     #[inline]
     pub fn iter_vertices(&self) -> impl Iterator<Item = &Point> {
         self.iter_triangles().map(move |t| &self.voronoi.circumcenters[t])
