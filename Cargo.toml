@@ -1,6 +1,6 @@
 [package]
 name = "voronoice"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2018"
 authors = ["Andre Esteve <andreesteve@gmail.com>"]
 description = "A nice and fast way to construct 2D Voronoi Diagrams"
@@ -11,7 +11,7 @@ categories = ["graphics", "visualization"]
 readme = "README.md"
 
 [dependencies]
-delaunator = { version = "~0.2" }
+delaunator = { version = "^1" }
 
 [dev-dependencies]
 criterion = "0.3.3"

@@ -133,12 +133,16 @@ impl Voronoi {
             ClipBehavior::None => sites
         };
 
-        let triangulation = triangulate(&sites)?;
+        let triangulation = triangulate(&sites);
 
         // triangulation.triangles is the indexing of each half-edge to source site
         // 3 * t, 3 * t + 1 and 3 * t + 2 are the vertices of a triangle in this vector
         let num_of_triangles = triangulation.triangles.len() / 3;
         let num_of_sites = sites.len();
+
+        if num_of_triangles == 0 {
+            return None
+        }
 
         // calculate circuncenter of each triangle, these will be the vertices of the voronoi cells
         let circumcenters = (0..num_of_triangles).map(|t| cicumcenter(
@@ -287,5 +291,14 @@ mod tests {
         create_random_builder(100_000)
             .build()
             .expect("Some voronoi expected.");
+    }
+
+    #[test]
+    fn collinear_sites() {
+        let voronoi = VoronoiBuilder::default()
+            .set_sites([ Point { x: 0.0, y: 0.0 }, Point { x: 0.0, y: 1.0 }, Point { x: 0.0, y: 2.0 } ].to_vec())
+            .build();
+
+        assert!(voronoi.is_none(), "Collinear points do not generate valid voronoi");
     }
 }
