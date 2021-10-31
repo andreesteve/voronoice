@@ -355,6 +355,7 @@ impl CellBuilder {
 
             // track new index for b
             new_b = self.vertices.len();
+            debug_assert!(clip_b.is_some(), "When clipping a [inside] ({:?}) -> b ({:?}) [outside], the projected vertex b was expected to be on the bounding box's edge ({:?}). However no projection was returned.", pa, pb, self.bounding_box);
             self.vertices.push(clip_b.expect("Vertex 'b' is outside the bounding box. An intersection should have been returned."));
         } // else neither is outside, not need for clipping
 
