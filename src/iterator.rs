@@ -19,7 +19,7 @@ impl<'t> EdgesAroundSiteIterator<'t> {
     /// This must be the left-most incoming edge to the site to avoid early iteration stop around the convex hull.
     pub fn new(triangulation: &'t Triangulation, incoming_edge: usize) -> Self {
         Self {
-            triangulation: triangulation,
+            triangulation,
             start: incoming_edge,
             next: incoming_edge
         }
@@ -228,7 +228,7 @@ mod test {
     fn iter_neighbors_hull_test() {
         let sites = vec![Point { x: -0.5, y: 0.0 }, Point { x: 0.5, y: 0.0 }, Point { x: 0.0, y: 0.0 }, Point { x: 0.0, y: 0.5 }, Point { x: 0.0, y: -0.5 }];
         let v = VoronoiBuilder::default()
-            .set_sites(sites.clone())
+            .set_sites(sites)
             .build()
             .unwrap();
         let neighbors: Vec<usize> = NeighborSiteIterator::new(&v, 0).collect();
@@ -242,7 +242,7 @@ mod test {
     fn iter_neighbors_inner_test() {
         let sites = vec![Point { x: -0.5, y: 0.0 }, Point { x: 0.5, y: 0.0 }, Point { x: 0.0, y: 0.0 }, Point { x: 0.0, y: 0.5 }, Point { x: 0.0, y: -0.5 }];
         let v = VoronoiBuilder::default()
-            .set_sites(sites.clone())
+            .set_sites(sites)
             .build()
             .unwrap();
         let neighbors: Vec<usize> = NeighborSiteIterator::new(&v, 2).collect();

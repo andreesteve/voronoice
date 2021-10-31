@@ -62,9 +62,9 @@ fn main() {
     // average value per cell
     for cell in cells.iter_mut() {
         if cell.3 > 0 {
-            cell.0 = cell.0 / cell.3;
-            cell.1 = cell.1 / cell.3;
-            cell.2 = cell.2 / cell.3;
+            cell.0 /= cell.3;
+            cell.1 /= cell.3;
+            cell.2 /= cell.3;
         }
     }
 

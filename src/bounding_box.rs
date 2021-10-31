@@ -425,7 +425,7 @@ mod tests {
         let c = -0.8;
         let d = 1.0;
         let (a, b) = bbox.project_ray(&line(2.0, c, d), &direction(&line(-20.0, c, d), &line(2.0, c, d)));
-        assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
+        assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a, b);
         assert!(
             abs_diff_eq(line(1.0, c, d).x, a.clone().unwrap().x, EQ_EPSILON)
             && abs_diff_eq(line(1.0, c, d).y, a.unwrap().y, EQ_EPSILON)
@@ -467,8 +467,8 @@ mod tests {
                     // -1^1 = -1
                     // -1^2 =  1
                     let origin = Point {
-                        x: base_origin.x * (-1. as f64).powi(i),
-                        y: base_origin.y * (-1. as f64).powi(j),
+                        x: base_origin.x * -1_f64.powi(i),
+                        y: base_origin.y * -1_f64.powi(j),
                     };
 
                     let bbox = BoundingBox::new(
@@ -486,7 +486,7 @@ mod tests {
                     let point = &Point { x: origin.x + width, y: origin.y };
                     let dir = &Point { x: -0.1, y: 0.0 };
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a, b);
                     let expected_intersection_a = Point{x: right, y: origin.y};
                     assert!(
                         abs_diff_eq(expected_intersection_a.x, a.clone().unwrap().x, EQ_EPSILON)
@@ -504,7 +504,7 @@ mod tests {
                     let point = &Point { x: origin.x - width, y: origin.y };
                     let dir = &Point { x: 0.1, y: 0.0 };
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a, b);
                     let expected_intersection_a = Point{x: left, y: origin.y};
                     assert!(
                         abs_diff_eq(expected_intersection_a.x, a.clone().unwrap().x, EQ_EPSILON)
@@ -548,7 +548,7 @@ mod tests {
                     let point = &Point { x: origin.x, y: origin.y + height};
                     let dir = &Point { x: 0.0, y: -0.1 };
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a, b);
                     let expected_intersection_a = Point{x: origin.x, y: top};
                     assert!(
                         abs_diff_eq(expected_intersection_a.x, a.clone().unwrap().x, EQ_EPSILON)
@@ -566,7 +566,7 @@ mod tests {
                     let point = &Point { x: origin.x, y: origin.y - height};
                     let dir = &Point { x: 0.0, y: 0.1 };
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a, b);
                     let expected_intersection_a = Point{x: origin.x, y: bottom};
                     assert!(
                         abs_diff_eq(expected_intersection_a.x, a.clone().unwrap().x, EQ_EPSILON)
@@ -625,7 +625,7 @@ mod tests {
                     let point = &line(right + 0.5, c, d); // right of right side
                     let dir = &direction(&line(left - 2., c, d), point); // pointing towards box
                     let (a, b) = bbox.project_ray(point, dir);
-                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a.clone(), b.clone());
+                    assert!(a.is_some() && b.is_some(), "Expected two intersections, a: {:?}, b: {:?}", a, b);
                     let expected_intersection_a = line(right, c, d);
                     assert!(
                         abs_diff_eq(expected_intersection_a.x, a.clone().unwrap().x, EQ_EPSILON)
