@@ -88,6 +88,7 @@ impl Default for ClipBehavior {
 /// The dual Delaunay-Voronoi graph.
 ///
 /// To obtain an instance of this type, use [VoronoiBuilder].
+#[derive(Clone)]
 pub struct Voronoi {
     /// These are the sites of each voronoi cell.
     sites: Vec<Point>,

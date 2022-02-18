@@ -111,6 +111,7 @@ impl<'v> VoronoiCell<'v> {
     }
 }
 
+#[allow(dead_code)]
 impl<'v> fmt::Debug for  VoronoiCell<'v> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[derive(Debug)]
