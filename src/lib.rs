@@ -248,11 +248,13 @@ impl Voronoi {
         &self.circumcenters
     }
 
-    /// Gets a reference to a vector of indices to sites where each triple represents a triangle on the dual Delaunay triangulation associated with this Voronoi graph.
+    /// Gets a reference to the underlying delaunay triangulation.
+    ///
+    /// ```triangulation().triangles``` is a vector of indices to sites where each triple represents a triangle on the dual Delaunay triangulation associated with this Voronoi graph.
     /// All triangles are directed counter-clockwise.
     #[inline]
-    pub fn delaunay_triangles(&self) -> &Vec<usize> {
-        &self.triangulation.triangles
+    pub fn triangulation(&self) -> &Triangulation {
+        &self.triangulation
     }
 
     /// Gets a reference to the bounding box.

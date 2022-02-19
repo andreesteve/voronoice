@@ -14,7 +14,7 @@ readme = "README.md"
 delaunator = { version = "^1" }
 
 [dev-dependencies]
-criterion = "0.3.3"
+criterion = "0.3.5"
 rand = "0.8.1"
 image = "0.23.14"
 

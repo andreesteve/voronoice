@@ -86,10 +86,11 @@ impl BoundingBox {
     /// Returns whether a given point is inside (or on the edges) of the bounding box.
     #[inline]
     pub fn is_inside(&self, point: &Point) -> bool {
-        // left.x <= point.x <= right.x
-        let horizonal_ok = (self.top_right.x - self.width() <= point.x ) && (point.x <= self.top_right.x);
-        // bottom.y <= point.y <= top.y
-        let vertical_ok = (self.top_right.y - self.height() <= point.y) && (point.y <= self.top_right.y);
+        let horizonal_ok = (self.top_right.x - self.width() < point.x || abs_diff_eq(self.top_right.x - self.width(), point.x, EQ_EPSILON))
+            && (point.x < self.top_right.x || abs_diff_eq(self.top_right.x, point.x, EQ_EPSILON));
+
+        let vertical_ok = (self.top_right.y - self.height() < point.y || abs_diff_eq(self.top_right.y - self.height(), point.y, EQ_EPSILON))
+            && (point.y < self.top_right.y || abs_diff_eq(self.top_right.y, point.y, EQ_EPSILON));
 
         horizonal_ok && vertical_ok
     }
