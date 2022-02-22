@@ -17,6 +17,8 @@ delaunator = { version = "^1" }
 criterion = "0.3.5"
 rand = "0.8.1"
 image = "0.23.14"
+serde_json = "1.0"
+clap = { version = "3.1", features = ["derive"] }
 
 [[bench]]
 name = "quick"
@@ -33,6 +35,10 @@ harness = false
 [[example]]
 name = "image"
 path = "examples/image.rs"
+
+[[example]]
+name = "assertions"
+path = "examples/assertions.rs"
 
 [[example]]
 name = "svg"

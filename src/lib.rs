@@ -51,6 +51,8 @@ mod iterator;
 mod utils;
 mod voronoi_builder;
 
+use std::{fmt::Display, str::FromStr};
+
 use delaunator::{EMPTY, Triangulation, triangulate};
 use self::{
     utils::{cicumcenter, site_of_incoming},
@@ -82,6 +84,25 @@ pub enum ClipBehavior {
 impl Default for ClipBehavior {
     fn default() -> Self {
         ClipBehavior::Clip
+    }
+}
+
+impl Display for ClipBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl FromStr for ClipBehavior {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "None" => Ok(Self::None),
+            "RemoveSitesOutsideBoundingBoxOnly" => Ok(Self::RemoveSitesOutsideBoundingBoxOnly),
+            "Clip" => Ok(Self::Clip),
+            _ => Err("Invalid option".to_string())
+        }
     }
 }
 
@@ -168,8 +189,8 @@ impl Voronoi {
         debug_assert!(!site_to_incoming_leftmost_halfedge.iter().any(|e| *e == EMPTY), "One or more sites is not reacheable in the triangulation mesh. This usually indicate coincident points.");
 
         // create cell builder to build cells and update circumcenters
-        let cell_builder = CellBuilder::new(circumcenters, bounding_box.clone(), clip_behavior);
-        let result = cell_builder.build(&sites, &triangulation, &site_to_incoming_leftmost_halfedge);
+        let cell_builder = CellBuilder::new(&triangulation, &sites, circumcenters, bounding_box.clone(), clip_behavior);
+        let result = cell_builder.build(&site_to_incoming_leftmost_halfedge);
 
         Some(Voronoi {
             bounding_box,
