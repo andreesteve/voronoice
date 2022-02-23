@@ -60,17 +60,36 @@ impl<'t> CellBuilder<'t> {
 
     pub fn build(mut self, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> CellBuilderResult {
         // adds the corners of the bounding box as potential vertices for the voronoi
-        if self.clip_behavior == ClipBehavior::Clip {
+        let cells = if self.clip_behavior == ClipBehavior::Clip {
             self.calculate_corners();
-        }
-
-        // create the cells
-        let cells = self.build_cells(site_to_incoming_leftmost_halfedge);
+            self.build_cells(site_to_incoming_leftmost_halfedge)
+        } else {
+            self.build_cells_no_clip(site_to_incoming_leftmost_halfedge)
+        };
 
         CellBuilderResult {
             vertices: self.vertices,
             cells
         }
+    }
+
+    pub fn build_cells_no_clip(&mut self, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> Vec<Vec<usize>> {
+        let num_of_sites = self.sites.len();
+        let mut cells: Vec<Vec<usize>> = vec![Vec::new(); num_of_sites];
+
+        // fill in cells
+        for edge in 0..self.triangulation.triangles.len() {
+            let site = site_of_incoming(self.triangulation, edge);
+            let cell = &mut cells[site];
+
+            // if cell is empty, it hasn't been processed yet
+            if cell.len() == 0 {
+                let leftmost_incoming_edge = site_to_incoming_leftmost_halfedge[site];
+                cell.extend(EdgesAroundSiteIterator::new(self.triangulation, leftmost_incoming_edge).map(utils::triangle_of_edge));
+            }
+        }
+
+        cells
     }
 
     /// Extend, towards the bounding box edge, the `voronoi_vertex` orthogonally to the Delaunay triangle edge represented by `a` -> `b`.
@@ -685,6 +704,45 @@ impl<'t> CellBuilder<'t> {
         }
     }
 
+    /// Given a ```cell``` and a voronoi edge prev -> c, checks for an intersection of the edge with the bounding box
+    /// and adds the clipped edge to the cell if there is an intersection.
+    fn try_clip_edge(&mut self, cell: &mut Vec<usize>, prev: usize, c: usize) {
+        let pos = &self.vertices[c];
+        let prev_pos = &self.vertices[prev];
+        let prev_to_pos = Point { x: pos.x - prev_pos.x, y: pos.y - prev_pos.y };
+        let (first_clip, second_clip) = self.bounding_box.project_ray(prev_pos, &prev_to_pos);
+
+        // intersection found, but does the intersection happen in the prev -> c edge or after it
+        // i.e. check to see if first_clip is after c (pos) in the projection ray
+        if first_clip.is_some() && bounding_box::order_points_on_ray(prev_pos, &prev_to_pos, Some(pos.clone()), first_clip.clone()).0 == first_clip {
+            self.vertices.push(first_clip.unwrap());
+            let f = self.vertices.len() - 1;
+            cell.push(f);
+
+            if let Some(second_clip) = second_clip {
+                self.vertices.push(second_clip);
+                let s = self.vertices.len() - 1;
+
+                // when site is on the hull, there is no neighbor for this edge
+                // so wrap around bounding box corners
+                // TODO: double check this, maybe we need to check if this edge indeed has no neighbor
+                let (link_count, links) = self.get_link_vertices_around_box_edge(
+                    &self.vertices[f],
+                    &self.vertices[s]);
+
+                cell.extend_from_slice(&links[..link_count]);
+                cell.push(s);
+
+                #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box, but crossed at {f} and {s}.");
+            } else {
+                // else the edge intersected in one of the corners only
+                #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box, but crossed at {f} only.");
+            }
+        } else {
+            #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box. Dropped.");
+        }
+    }
+
     /// Builds cells for each site.
     /// This won't extend not close the hull.
     /// This will not clip any edges to the bounding box.
@@ -707,7 +765,6 @@ impl<'t> CellBuilder<'t> {
 
         // fill in cells
         for edge in 0..triangulation.triangles.len() {
-        //for edge in [0] {
             let site = site_of_incoming(triangulation, edge);
             let cell = &mut cells[site];
 
@@ -748,13 +805,7 @@ impl<'t> CellBuilder<'t> {
                     tmp_cell.extend(iter.map(utils::triangle_of_edge));
                 }
 
-                // get first vertex inside bounding box
-                //let (first_index, &first) = tmp_cell.iter().enumerate().filter(|(_, &c)| is_inside(c)).next().expect("Cell cannot be entirely outside bounding box because it contains a site inside bounding box");
-
                 #[cfg(debug_assertions)] println!("  Temp: {:?}", tmp_cell);
-
-                //cell.extend(tmp_cell.iter());
-                //continue;
 
                 let first_vertex_inside = tmp_cell.iter().enumerate().filter(|(_, &c)| is_inside(c)).next();
                 if let Some((first_index, &first)) = first_vertex_inside {
@@ -772,40 +823,7 @@ impl<'t> CellBuilder<'t> {
                             // voronoi edge has both vertices outside bounding box
                             (false, false) => {
                                 // but may cross the box, so check for an intersection
-                                let pos = &self.vertices[c];
-                                let prev_pos = &self.vertices[prev];
-                                let prev_to_pos = Point { x: pos.x - prev_pos.x, y: pos.y - prev_pos.y };
-                                let (first_clip, second_clip) = self.bounding_box.project_ray(prev_pos, &prev_to_pos);
-
-                                // intersection found, but does the intersection happen in the prev -> c edge or after it
-                                // i.e. check to see if first_clip is after c (pos) in the projection ray
-                                if first_clip.is_some() && bounding_box::order_points_on_ray(prev_pos, &prev_to_pos, Some(pos.clone()), first_clip.clone()).0 == first_clip {
-                                    self.vertices.push(first_clip.unwrap());
-                                    let f = self.vertices.len() - 1;
-                                    cell.push(f);
-
-                                    if let Some(second_clip) = second_clip {
-                                        self.vertices.push(second_clip);
-                                        let s = self.vertices.len() - 1;
-
-                                        // when site is on the hull, there is no neighbor for this edge
-                                        // so wrap around bounding box corners
-                                        // TODO: double check this, maybe we need to check if this edge indeed has no neighbor
-                                        let (link_count, links) = self.get_link_vertices_around_box_edge(
-                                            &self.vertices[f],
-                                            &self.vertices[s]);
-
-                                        cell.extend_from_slice(&links[..link_count]);
-                                        cell.push(s);
-
-                                        #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: outside the box, but crossed at {f} and {s}.");
-                                    } else {
-                                        // else the edge intersected in one of the corners only
-                                        #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: outside the box, but crossed at {f} only.");
-                                    }
-                                } else {
-                                    #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: outside the box. Dropped.");
-                                }
+                                self.try_clip_edge(cell, prev, c);
                             },
 
                             // entering bounding box - edge crosses bounding box edge from the outside
