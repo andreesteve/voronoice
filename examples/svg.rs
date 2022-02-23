@@ -6,6 +6,7 @@ use std::{fs::File, io::Write, path::PathBuf};
 const CANVAS_SIZE: f64 = 800.;
 const CANVAS_MARGIN: f64 = 0.2;
 const POINT_SIZE: usize = 2;
+const CIRCUMCENTER_CIRCLE_COLOR: &str = "black";
 const SITE_COLOR: &str = "black";
 const CIRCUMCENTER_COLOR: &str = "red";
 const LINE_WIDTH: usize = 1;
@@ -29,6 +30,10 @@ struct Args {
     #[clap(short, long)]
     debug: bool,
 
+    /// Reads the sites from stdin (e.g. [[1,0],[0,1],[1,1]])
+    #[clap(long)]
+    stdin: bool,
+
     /// Writes sites to file
     #[clap(short, long)]
     write_sites: Option<PathBuf>,
@@ -47,7 +52,11 @@ struct Args {
 
     /// Rotates the sites by this many degrees
     #[clap(short, long, default_value_t = 0.)]
-    rotate: f64
+    rotate: f64,
+
+    /// Draw circumcenter circles
+    #[clap(long)]
+    circumcenter: bool,
 }
 
 fn main() -> std::io::Result<()> {
@@ -57,6 +66,8 @@ fn main() -> std::io::Result<()> {
         // laod sites from file
         let file = File::open(path)?;
         serde_json::from_reader(file)?
+    } else if args.stdin {
+        serde_json::from_reader(std::io::stdin())?
     } else {
         let mut rng = rand::thread_rng();
         let range = CANVAS_SIZE * 0.5 * (1. - CANVAS_MARGIN);
@@ -138,6 +149,7 @@ fn main() -> std::io::Result<()> {
     {circumcenters}
     {voronoi_edges}
     {triangles}
+    {circumcenter_circles}
 </svg>"#,
         width = CANVAS_SIZE,
         height = CANVAS_SIZE,
@@ -149,6 +161,7 @@ fn main() -> std::io::Result<()> {
         circumcenters = render_point(voronoi.vertices(), CIRCUMCENTER_COLOR, true),
         voronoi_edges = render_voronoi_edges(&voronoi),
         triangles = render_triangles(&voronoi),
+        circumcenter_circles = if args.circumcenter { render_circumcenters(&voronoi) } else { "".to_string() },
     );
 
     if args.debug {
@@ -206,6 +219,25 @@ fn render_point(points: &[Point], color: &str, jitter: bool) -> String {
                 color = color
             ) + &if RENDER_LABELS { format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{text}</text>"#, x = p.x, y = p.y, text = i) } else { "".to_string() }
         })
+}
+
+fn render_circumcenters(voronoi: &Voronoi) -> String {
+    voronoi.vertices().iter().enumerate().fold(String::new(), |acc, (triangle, circumcenter)| {
+        if triangle < voronoi.triangulation().triangles.len() / 3  {
+            let point_on_circle = &voronoi.sites()[voronoi.triangulation().triangles[triangle * 3]];
+            let radius = ((point_on_circle.x - circumcenter.x).powi(2) + (point_on_circle.y - circumcenter.y).powi(2)).sqrt();
+
+            acc + &format!(
+                r#"<circle id="ct_{pi}" cx="{x}" cy="{y}" r="{radius}" fill="none" stroke="{color}" stroke-opacity="0.25" />"#,
+                pi = triangle,
+                x = circumcenter.x,
+                y = circumcenter.y,
+                color = CIRCUMCENTER_CIRCLE_COLOR
+            )
+        } else {
+            acc
+        }
+    })
 }
 
 fn render_voronoi_edges(voronoi: &Voronoi) -> String {

@@ -29,11 +29,6 @@ pub fn calculate_approximated_cetroid<'a>(points: impl Iterator<Item = &'a Point
     r
 }
 
-/// Calculates the midpoint of the vector a -> b.
-pub fn midpoint(a: &Point, b: &Point) -> Point {
-    Point { x: (a.x + b.x) / 2.0, y: (a.y + b.y) / 2.0 }
-}
-
 pub fn cicumcenter(a: &Point, b: &Point, c: &Point) -> Point {
     // move origin to a
     let b_x = b.x - a.x;

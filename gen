@@ -1,4 +1,12 @@
 #!/bin/bash
-[[ $1 && $1 != -* ]] && input="-p $1 ${@:2}" || input=$@
+if [[ $1 && $1 != -* ]]
+then
+    input="-p $1 ${@:2}"
+    sinput="${@:2}"
+else
+    input=$@
+    sinput=$@
+fi
+
 cargo run --example svg -- $input -o example.svg -w sites.json
-cargo run --example svg -- -p sites.json -c RemoveSitesOutsideBoundingBoxOnly -o orig.svg 1> /dev/null
+cargo run --example svg -- -p sites.json -c RemoveSitesOutsideBoundingBoxOnly -o orig.svg $sinput 1> /dev/null
