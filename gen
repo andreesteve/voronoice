@@ -1,4 +1,4 @@
 #!/bin/bash
 [[ $1 ]] && input="-p $1" || input=
 cargo run --example svg -- $input -o example.svg -w sites.json ${@:2} -s 15
-cargo run --example svg -- -p sites.json -c RemoveSitesOutsideBoundingBoxOnly -o orig.svg ${@:2}
+cargo run --example svg -- -p sites.json -c RemoveSitesOutsideBoundingBoxOnly -o orig.svg ${@:2} 1> /dev/null

@@ -3,3 +3,5 @@ Cargo.lock
 **/*.rs.bk
 *.ipynb
 .vscode/
+*.svg
+sites.json

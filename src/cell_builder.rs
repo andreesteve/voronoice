@@ -707,7 +707,7 @@ impl<'t> CellBuilder<'t> {
 
         // fill in cells
         for edge in 0..triangulation.triangles.len() {
-        //for edge in [3] {
+        //for edge in [0] {
             let site = site_of_incoming(triangulation, edge);
             let cell = &mut cells[site];
 
@@ -779,7 +779,7 @@ impl<'t> CellBuilder<'t> {
 
                                 // intersection found, but does the intersection happen in the prev -> c edge or after it
                                 // i.e. check to see if first_clip is after c (pos) in the projection ray
-                                if bounding_box::order_points_on_ray(pos, &prev_to_pos, first_clip.clone(), None).0.is_some() {
+                                if first_clip.is_some() && bounding_box::order_points_on_ray(prev_pos, &prev_to_pos, Some(pos.clone()), first_clip.clone()).0 == first_clip {
                                     self.vertices.push(first_clip.unwrap());
                                     let f = self.vertices.len() - 1;
                                     cell.push(f);
@@ -787,15 +787,24 @@ impl<'t> CellBuilder<'t> {
                                     if let Some(second_clip) = second_clip {
                                         self.vertices.push(second_clip);
                                         let s = self.vertices.len() - 1;
+
+                                        // when site is on the hull, there is no neighbor for this edge
+                                        // so wrap around bounding box corners
+                                        // TODO: double check this, maybe we need to check if this edge indeed has no neighbor
+                                        let (link_count, links) = self.get_link_vertices_around_box_edge(
+                                            &self.vertices[f],
+                                            &self.vertices[s]);
+
+                                        cell.extend_from_slice(&links[..link_count]);
                                         cell.push(s);
 
-                                        #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box, but crossed at {f} and {s}.");
+                                        #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: outside the box, but crossed at {f} and {s}.");
                                     } else {
                                         // else the edge intersected in one of the corners only
-                                        #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box, but crossed at {f} only.");
+                                        #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: outside the box, but crossed at {f} only.");
                                     }
                                 } else {
-                                    #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box. Dropped.");
+                                    #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: outside the box. Dropped.");
                                 }
                             },
 
@@ -809,7 +818,7 @@ impl<'t> CellBuilder<'t> {
                                     &self.vertices[*cell.last().expect("Invariant by starting inside box")],
                                     &self.vertices[clip]);
 
-                                #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: Re-entering box at {clip} and wrapped around {:?}", &links[..link_count]);
+                                #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: Re-entering box at {clip} and wrapped around {:?}", &links[..link_count]);
 
                                 cell.extend_from_slice(&links[..link_count]);
                                 cell.push(clip);
@@ -819,12 +828,12 @@ impl<'t> CellBuilder<'t> {
                             (true, false) => {
                                 cell.push(prev);
                                 cell.push(self.clip_voronoi_edge(prev, c).expect("Edge crosses box, intersection must exist."));
-                                #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: Leaving box. Clipped at {}", cell.last().unwrap());
+                                #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: Leaving box. Clipped at {}", cell.last().unwrap());
                             },
 
                             // edge inside box
                             (true, true) => {
-                                #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: Inside box. Added {prev}.");
+                                #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: Inside box. Added {prev}.");
                                 cell.push(prev);
                             },
                         }
@@ -833,10 +842,10 @@ impl<'t> CellBuilder<'t> {
                         prev_inside = inside;
                     }
                 } else {
-                    #[cfg(debug_assertions)] println!("  Cell has no vertices inside the box. It only crossed the box.");
+                    #[cfg(debug_assertions)] println!("  [{site}/{edge}] Cell has no vertices inside the box. It only crossed the box.");
                 }
 
-                #[cfg(debug_assertions)] println!("  Cell: {:?}", cell);
+                #[cfg(debug_assertions)] println!("  [{site}/{edge}] Cell: {:?}", cell);
             }
         }
 
