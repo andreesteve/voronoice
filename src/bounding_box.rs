@@ -3,20 +3,6 @@ use crate::utils::abs_diff_eq;
 use super::Point;
 const EQ_EPSILON: f64 = 4. * std::f64::EPSILON;
 
-#[derive(PartialEq, Copy, Clone, Debug)]
-pub enum BoundingBoxTopBottomEdge {
-    Top,
-    Bottom,
-    None
-}
-
-#[derive(PartialEq, Copy, Clone, Debug)]
-pub enum BoundingBoxLeftRightEdge {
-    Left,
-    Right,
-    None
-}
-
 /// Defines a rectangular bounding box.
 ///
 /// The Y axis convention is downwards.
@@ -119,6 +105,16 @@ impl BoundingBox {
         self.top_right.x
     }
 
+    /// Gets a slice of corners oriented counter-clockwise.
+    pub fn corners(&self) -> [Point; 4] {
+        [
+            Point { x: self.left(), y: self.top() }, // top left
+            self.bottom_left().clone(),
+            Point { x: self.right(), y: self.bottom() }, // bottom right
+            self.top_right().clone(),
+        ]
+    }
+
     /// Returns whether a given point is inside (or on the edges) of the bounding box.
     #[inline]
     pub fn is_inside(&self, point: &Point) -> bool {
@@ -131,35 +127,62 @@ impl BoundingBox {
     // /// Same as inside, but return false if point is on the box edge.
     #[inline]
     pub fn is_exclusively_inside(&self, point: &Point) -> bool {
-        self.is_inside(point) && self.which_edge(point) == (BoundingBoxTopBottomEdge::None, BoundingBoxLeftRightEdge::None)
+        self.is_inside(point) && self.which_edge(point).is_none()
     }
 
-    /// Returns which edge, if any, the given `point` is located.
+    /// Returns the index of the corner representing the edge ```point``` is on.
+    ///
+    /// corners() method can be called to get the list of corners.
+    ///
+    /// # Example
+    /// If point is on middle of the top edge, the top left corner will be returned.
     #[inline]
-    pub (crate) fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
-        (
-            // The cost of this macro is probably justified in this case, since equality (==) is necessary
-            // Didn't check the performance impact, though.
-            if abs_diff_eq(point.y, self.top(), EQ_EPSILON) {
-                // top
-                BoundingBoxTopBottomEdge::Top
-            } else if abs_diff_eq(point.y, self.bottom(), EQ_EPSILON) {
-                BoundingBoxTopBottomEdge::Bottom
-            } else {
-                BoundingBoxTopBottomEdge::None
-            },
-
+    pub (crate) fn which_edge(&self, point: &Point) -> Option<usize> {
+        if abs_diff_eq(point.y, self.top(), EQ_EPSILON) {
+            // top
+            Some(0)
+        } else if abs_diff_eq(point.y, self.bottom(), EQ_EPSILON) {
+            // bottom
+            Some(2)
+        } else {
             if abs_diff_eq(point.x, self.right(), EQ_EPSILON) {
                 // right
-                BoundingBoxLeftRightEdge::Right
+                Some(3)
             } else if abs_diff_eq(point.x, self.left(), EQ_EPSILON) {
                 // left
-                BoundingBoxLeftRightEdge::Left
+                Some(1)
             } else {
-                BoundingBoxLeftRightEdge::None
+                None
             }
-        )
+        }
     }
+
+    // /// Returns which edge, if any, the given `point` is located.
+    // #[inline]
+    // pub (crate) fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
+    //     (
+    //         // The cost of this macro is probably justified in this case, since equality (==) is necessary
+    //         // Didn't check the performance impact, though.
+    //         if abs_diff_eq(point.y, self.top(), EQ_EPSILON) {
+    //             // top
+    //             BoundingBoxTopBottomEdge::Top
+    //         } else if abs_diff_eq(point.y, self.bottom(), EQ_EPSILON) {
+    //             BoundingBoxTopBottomEdge::Bottom
+    //         } else {
+    //             BoundingBoxTopBottomEdge::None
+    //         },
+
+    //         if abs_diff_eq(point.x, self.right(), EQ_EPSILON) {
+    //             // right
+    //             BoundingBoxLeftRightEdge::Right
+    //         } else if abs_diff_eq(point.x, self.left(), EQ_EPSILON) {
+    //             // left
+    //             BoundingBoxLeftRightEdge::Left
+    //         } else {
+    //             BoundingBoxLeftRightEdge::None
+    //         }
+    //     )
+    // }
 
     /// Intersects a line represented by points 'a' and 'b' and returns the two intersecting points with the box, or None
     pub (crate) fn intersect_line(&self, a: &Point, b: &Point) -> (Option<Point>, Option<Point>) {
@@ -241,11 +264,6 @@ impl BoundingBox {
         let (a, b) = self.intersect_line(point, &b);
         order_points_on_ray(point, direction, a, b)
     }
-
-    /// Same as `project_ray` when you don't care abount the second intersecting point.
-    pub (crate) fn project_ray_closest(&self, point: &Point, direction: &Point) -> Option<Point> {
-        self.project_ray(point, direction).0
-    }
 }
 
 /// Given a ray defined by `point` and `direction`, and two points `a` and `b` on such ray, returns a tuple (w, z) where point <= w <= z.
@@ -305,6 +323,11 @@ pub (crate) fn order_points_on_ray(point: &Point, direction: &Point, a: Option<P
             }
         }
     }
+}
+
+#[inline]
+pub (crate) fn next_edge(edge: usize) -> usize {
+    (edge + 1) % 4
 }
 
 #[cfg(test)]

@@ -54,31 +54,35 @@ impl<'t> Iterator for EdgesAroundSiteIterator<'t> {
 #[derive(Clone)]
 pub struct NeighborSiteIterator<'t> {
     iter: EdgesAroundSiteIterator<'t>,
-    voronoi: &'t Voronoi,
+    //triangulation: &'t Triangulation,
     last: usize,
-    source_site: usize,
+    //source_site: usize,
 }
 
 impl<'t> NeighborSiteIterator<'t> {
     /// Creates iterator based on the site.
     pub fn new(voronoi: &'t Voronoi, site: usize) -> Self {
-        assert!(site < voronoi.sites.len(), "site {} does not exist", site);
+        Self::with_triangulation(voronoi.triangulation(), &voronoi.site_to_incoming_leftmost_halfedge, site)
+    }
 
-        let incoming_leftmost_edge = voronoi.site_to_incoming_leftmost_halfedge[site];
+    /// Creates iterator based on the site.
+    pub fn with_triangulation(triangulation: &'t Triangulation, site_to_incoming_leftmost_halfedge: &'t Vec<usize>, site: usize) -> Self {
+        let &incoming_leftmost_edge = site_to_incoming_leftmost_halfedge.get(site).expect("Site does not exist");
         Self {
-            iter: EdgesAroundSiteIterator::new(&voronoi.triangulation, incoming_leftmost_edge),
-            voronoi,
-            source_site: site,
+            iter: EdgesAroundSiteIterator::new(&triangulation, incoming_leftmost_edge),
+            //triangulation,
+            //source_site: site,
             last: EMPTY,
         }
     }
 
-    fn has_common_edge(&self, neighbor_site: usize) -> bool {
-        // FIXME: this is probably wrong - 2 common vertices are needed for a common edge, but when hull cells are closed
-        // same vertice positions are duplicated with new indexes, so simple index comparison here does not work
-        // this depends on the fact that at least one of the vertices in common is a original circumcenter
-        self.voronoi.cells[self.source_site].iter().any(|t| self.voronoi.cells[neighbor_site].contains(t))
-    }
+
+    // fn has_common_edge(&self, neighbor_site: usize) -> bool {
+    //     // FIXME: this is probably wrong - 2 common vertices are needed for a common edge, but when hull cells are closed
+    //     // same vertice positions are duplicated with new indexes, so simple index comparison here does not work
+    //     // this depends on the fact that at least one of the vertices in common is a original circumcenter
+    //     self.voronoi.cells[self.source_site].iter().any(|t| self.voronoi.cells[neighbor_site].contains(t))
+    // }
 }
 
 impl<'t> Iterator for NeighborSiteIterator<'t> {
@@ -86,31 +90,33 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
     /// Walks all half-edges around the starting point and returning the associated surrounding sites
     fn next(&mut self) -> Option<Self::Item> {
         let mut site = None;
-        let current_cell = self.voronoi.cell(self.source_site);
         while let Some(incoming) = self.iter.next() {
             self.last = incoming;
 
             // get site from where the incoming edge came from
             let neighbor_site = self.iter.triangulation.triangles[incoming];
+            site = Some(neighbor_site);
+            break;
 
             // voronoi sites are topologically connected to other sites based if there is a delaunay edge between then
             // however clipping may remove that edge and the associated cells in the voronoi diagram may not share a common edge
             // this may happen if current and neighbor cells are in the hull
             // TODO checking if cells are on the hull may cost more than just always checking for common edge
-            let neighbor_cell = self.voronoi.cell(neighbor_site);
-            if neighbor_cell.is_on_hull() && current_cell.is_on_hull() {
-                if self.has_common_edge(neighbor_site) {
-                    // site and neig// site and neighbor is on hull and they are connected because they share a non-clipped edge
-                    site = Some(neighbor_site);
-                    break;
-                } else {
-                    // neighbors on hull do not share an edge (clipped)
-                    continue;
-                }
-            } else {
-                site = Some(neighbor_site);
-                break;
-            }
+            // FIXME: add a way to distinguish topological neighbors from visual (clipped) neighbors
+            // let neighbor_cell = self.voronoi.cell(neighbor_site);
+            // if neighbor_cell.is_on_hull() && current_cell.is_on_hull() {
+            //     if self.has_common_edge(neighbor_site) {
+            //         // site and neig// site and neighbor is on hull and they are connected because they share a non-clipped edge
+            //         site = Some(neighbor_site);
+            //         break;
+            //     } else {
+            //         // neighbors on hull do not share an edge (clipped)
+            //         continue;
+            //     }
+            // } else {
+            //     site = Some(neighbor_site);
+            //     break;
+            // }
         }
 
         if site.is_some() {
@@ -123,12 +129,14 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
                 self.last = EMPTY;
 
                 // FIXME this logic is confusing - ideally this would be merged with the loop above
+                // let neighbor_site = self.iter.triangulation.triangles[next_halfedge(outgoing)];
+                // if self.has_common_edge(neighbor_site) {
+                //     Some(neighbor_site)
+                // } else {
+                //     None
+                // }
                 let neighbor_site = self.iter.triangulation.triangles[next_halfedge(outgoing)];
-                if self.has_common_edge(neighbor_site) {
-                    Some(neighbor_site)
-                } else {
-                    None
-                }
+                Some(neighbor_site)
             } else {
                 // this means site is not on hull, and we have already iterated over all neighbors
                 None
@@ -149,7 +157,8 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
 pub struct CellPathIterator<'t, F> {
     site: usize,
     cost_fn: F,
-    voronoi: &'t Voronoi
+    triangulation: &'t Triangulation,
+    site_to_incoming_leftmost_halfedge: &'t Vec<usize>
 }
 
 impl<'t, F> CellPathIterator<'t, F> {
@@ -157,10 +166,15 @@ impl<'t, F> CellPathIterator<'t, F> {
     pub fn new(voronoi: &'t Voronoi, site: usize, cost_fn: F) -> Self {
         assert!(site < voronoi.sites.len(), "site {} does not exist", site);
 
+        Self::with_triangulation(voronoi.triangulation(), &voronoi.site_to_incoming_leftmost_halfedge, site, cost_fn)
+    }
+
+    pub fn with_triangulation(triangulation: &'t Triangulation, site_to_incoming_leftmost_halfedge: &'t Vec<usize>, site: usize, cost_fn: F) -> Self {
         Self {
             site,
             cost_fn,
-            voronoi
+            triangulation,
+            site_to_incoming_leftmost_halfedge
         }
     }
 }
@@ -175,7 +189,7 @@ impl<'t, F> Iterator for CellPathIterator<'t, F>
 
         if current_site != EMPTY {
             // take the neighbor with least cost
-            let next = NeighborSiteIterator::new(self.voronoi, current_site)
+            let next = NeighborSiteIterator::with_triangulation(self.triangulation, self.site_to_incoming_leftmost_halfedge, current_site)
                 .map(|n| (n, (self.cost_fn)(current_site, n)))
                 .min_by(|(_, cost0), (_, cost1)| cost0.partial_cmp(cost1).unwrap());
 
@@ -199,14 +213,18 @@ impl<'t, F> Iterator for CellPathIterator<'t, F>
     }
 }
 
-/// Produces an iterator that calculates the shortest path from start to dest.
+/// Produces an iterator that calculates the shortest path from ```start_site``` to a ```dest``` point.
 ///
 /// If destination point is outside voronoi diagram, then the closest point to destination in the voronoi diagram will be returned.
-pub fn shortest_path_iter<'v>(voronoi: &'v Voronoi, start: usize, dest: Point) -> impl Iterator<Item = usize> + 'v {
-    CellPathIterator::new(voronoi, start, move |curr, next| {
+pub fn shortest_path_iter<'v>(voronoi: &'v Voronoi, start_site: usize, dest: Point) -> impl Iterator<Item = usize> + 'v {
+    shortest_path_iter_from_triangulation(voronoi.triangulation(), &voronoi.sites(), &voronoi.site_to_incoming_leftmost_halfedge, start_site, dest)
+}
+
+pub (crate) fn shortest_path_iter_from_triangulation<'t>(triangulation: &'t Triangulation, sites: &'t Vec<Point>, site_to_incoming_leftmost_halfedge: &'t Vec<usize>, start_site: usize, dest: Point) -> impl Iterator<Item = usize> + 't {
+    CellPathIterator::with_triangulation(triangulation, site_to_incoming_leftmost_halfedge, start_site, move |curr, next| {
         // calculate distance
-        let dist_to_dest = dist2(&voronoi.sites[curr], &dest);
-        let dist_from_next = dist2(&voronoi.sites[next], &dest);
+        let dist_to_dest = dist2(&sites[curr], &dest);
+        let dist_from_next = dist2(&sites[next], &dest);
 
         if dist_to_dest <= dist_from_next {
             // if current is closer to dest than next is, make cost to travel to next impossibly high

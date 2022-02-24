@@ -2,7 +2,7 @@ use std::process::exit;
 
 use rand::Rng;
 use voronoice::{BoundingBox, VoronoiBuilder, Point, Voronoi};
-const SIZE: usize = 5;
+const SIZE: usize = 100;
 const TRIES: usize = 50_000;
 
 fn main() {
@@ -41,8 +41,36 @@ fn main() {
                 println!("Cell {}: vertex {v} {:?} is outside bounding box.", cell.site(), p);
                 fail(&voronoi);
             });
+
+            if !is_convex(&vertices) {
+                println!("Cell {} is not convex. {:?}", cell.site(), cell.iter_triangles().collect::<Vec<usize>>());
+                fail(&voronoi);
+            }
+
+            if !is_point_inside(&vertices, cell.site_position()) {
+                println!("Cell {} site is outside the voronoi cell. {:?}", cell.site(), cell.iter_triangles().collect::<Vec<usize>>());
+                fail(&voronoi);
+            }
+        }
+
+        for corner in voronoi.bounding_box().corners() {
+            let mut inside = false;
+            for cell in voronoi.iter_cells() {
+                let cell_vertices = cell.iter_vertices().cloned().collect();
+                if is_point_inside(&cell_vertices, &corner) {
+                    inside = true;
+                    break;
+                }
+            }
+
+            if !inside {
+                println!("Corner {:?} is not inside any hull cell.",&corner);
+                fail(&voronoi);
+            }
         }
     }
+
+    println!("Finished. Nothing found");
 }
 
 fn fail(voronoi: &Voronoi) {
@@ -50,6 +78,22 @@ fn fail(voronoi: &Voronoi) {
     let s = format!("{:?}", voronoi.sites());
     std::io::Write::write_all(&mut std::fs::File::create("sites.json").unwrap(), s.as_bytes()).unwrap();
     exit(-1);
+}
+
+fn is_convex(vertices: &Vec<Point>) -> bool {
+    let triangulation = delaunator::triangulate(vertices);
+    triangulation.hull.len() == vertices.len()
+}
+
+/// Checks whether ```inside``` is inside convex polygon ```vertices``` ordered counter-clockwise
+fn is_point_inside(vertices: &Vec<Point>, inside: &Point) -> bool {
+    for (a, b) in vertices.iter().zip(vertices.iter().cycle().skip(1)) {
+        if robust::orient2d(a.into(), b.into(), inside.into()) > 0. {
+            return false
+        }
+    }
+
+    true
 }
 
 /// Check that the cell is ordered counter-clockwise and inside the bounding box.

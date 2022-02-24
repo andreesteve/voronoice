@@ -78,6 +78,10 @@ struct Args {
     /// Optional bounding box side length (width = height = side)
     #[clap(long)]
     bounding_box_side: Option<f64>,
+
+    /// Whether to render voronoi edges or not
+    #[clap(long)]
+    render_voronoi_edges: Option<bool>,
 }
 
 fn main() -> std::io::Result<()> {
@@ -185,7 +189,7 @@ fn main() -> std::io::Result<()> {
         bb_height = bounding_box_side,
         sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false),
         circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, true),
-        voronoi_edges = render_voronoi_edges(&transform, &voronoi, &args),
+        voronoi_edges = if args.render_voronoi_edges.unwrap_or(true) { render_voronoi_edges(&transform, &voronoi, &args) } else { "".to_string() },
         triangles = render_triangles(&transform, &voronoi),
         circumcenter_circles = if args.circumcenter { render_circumcenters(&transform, &voronoi) } else { "".to_string() },
     );
@@ -306,8 +310,8 @@ fn render_voronoi_edges(transform: &Transform, voronoi: &Voronoi, args: &Args) -
 #[derive(Default, Clone)]
 struct Transform {
     scale: f64,
-    offset: Point,
     center: Point,
+    offset: Point,
     farthest_distance: f64,
     rotation: f64
 }
@@ -322,8 +326,12 @@ impl Transform {
     }
 
     fn bounding_box(&self, args: &Args) -> BoundingBox {
-        let box_side = args.bounding_box_side.unwrap_or(self.farthest_distance * 2.0 * (1.0 - CANVAS_MARGIN));
-        BoundingBox::new(self.center.clone(), box_side, box_side)
+        if let Some(side) = args.bounding_box_side {
+            BoundingBox::new_centered_square(side)
+        } else {
+            let box_side = self.farthest_distance * 2.0 * (1.0 - CANVAS_MARGIN);
+            BoundingBox::new(self.center.clone(), box_side, box_side)
+        }
     }
 }
 
@@ -350,15 +358,12 @@ fn build_transformation(points: &[[f64;2]], args: &Args) -> Transform {
         y: (CANVAS_SIZE / 2.0) - (scale * center[1]) - args.pan_y,
     };
 
-    let center = Point {
-        x: center[0],
-        y: center[1],
-    };
+    let center = Point { x: center[0], y: center[1] };
 
     Transform {
+        center,
         scale,
         offset,
-        center,
         farthest_distance,
         rotation: args.rotate.to_radians(),
     }

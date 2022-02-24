@@ -1,5 +1,7 @@
+use core::panic;
+
 use delaunator::{EMPTY, next_halfedge, Triangulation};
-use crate::utils::{triangle_of_edge};
+use crate::{utils::{triangle_of_edge}};
 
 use super::{ClipBehavior, Point, bounding_box::{self, *}, iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
 
@@ -9,12 +11,11 @@ pub struct CellBuilder<'t> {
     sites: &'t Vec<Point>,
     vertices: Vec<Point>,
     site_to_incoming_leftmost_halfedge: Vec<usize>,
+    corner_ownership: Vec<usize>,
+    is_vertex_inside_bounding_box: Vec<bool>,
     bounding_box: BoundingBox,
     clip_behavior: ClipBehavior,
-    top_left_corner_index: usize,
-    bottom_left_corner_index: usize,
-    top_right_corner_index: usize,
-    bottom_right_corner_index: usize,
+    first_corner_index: usize,
 }
 
 pub struct CellBuilderResult {
@@ -39,15 +40,16 @@ impl<T> PushAndReturnIndex<T> for Vec<T> {
 impl<'t> CellBuilder<'t> {
     pub fn new(triangulation: &'t Triangulation, sites: &'t Vec<Point>, vertices: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Self {
         let site_to_incoming_leftmost_halfedge = calculate_incoming_edges(triangulation, sites.len());
+        let is_vertex_inside_bounding_box: Vec<bool> = vertices.iter().map(|c| bounding_box.is_inside(c)).collect();
+        let corner_ownership = calculate_corner_ownership(&bounding_box.corners(), &triangulation, sites, &site_to_incoming_leftmost_halfedge);
 
         Self {
             triangulation,
             sites,
             site_to_incoming_leftmost_halfedge,
-            top_right_corner_index: 0,
-            top_left_corner_index: 0,
-            bottom_left_corner_index: 0,
-            bottom_right_corner_index: 0,
+            is_vertex_inside_bounding_box,
+            corner_ownership,
+            first_corner_index: 0,
             vertices,
             bounding_box,
             clip_behavior,
@@ -89,131 +91,12 @@ impl<'t> CellBuilder<'t> {
         cells
     }
 
-    /// Given two vertices `a` and `b` that are on the bounding box edge(s), returns what vertices must be added between them to conform with the bounding box format.
-    /// `a` and `b` are assumed to be ordered counter-clockwise.
-    /// Returns how many new vertices were added.
-    pub fn get_link_vertices_around_box_edge(&self, pa: &Point, pb: &Point) -> (usize, [usize;4]) {
-        let (mut a_bt, mut a_lr) = self.bounding_box.which_edge(pa);
-        let (b_bt, b_lr) = self.bounding_box.which_edge(pb);
-
-        // It is expected that points ARE on the box edge
-        assert!(!(a_bt == BoundingBoxTopBottomEdge::None && a_lr == BoundingBoxLeftRightEdge::None), "Point a [{:?}] was not located on any of the box's edge", pa);
-        assert!(!(b_bt == BoundingBoxTopBottomEdge::None && b_lr == BoundingBoxLeftRightEdge::None), "Point b [{:?}] was not located on any of the box's edge", pb);
-
-        // short-circuit for case where a and b are on the same edge, and b is ahead of a, such case there is nothing to do
-        if (match (a_bt, b_bt) {
-            (BoundingBoxTopBottomEdge::Bottom, BoundingBoxTopBottomEdge::Bottom) => pb.x > pa.x,
-            (BoundingBoxTopBottomEdge::Top, BoundingBoxTopBottomEdge::Top) => pa.x > pb.x,
-            (_, _) => false
-        } || match (a_lr, b_lr) {
-            (BoundingBoxLeftRightEdge::Right, BoundingBoxLeftRightEdge::Right) => pb.y > pa.y,
-            (BoundingBoxLeftRightEdge::Left, BoundingBoxLeftRightEdge::Left) => pa.y > pb.y,
-            (_, _) => false
-        }) {
-            return (0, [0, 0, 0, 0]);
-        }
-
-        // a full cycle in the box will yeild maximum
-        const MAX_CORNERS: usize = 4;
-        let mut new_vertices = [EMPTY; MAX_CORNERS];
-        let mut new_vertice_count = 0;
-
-        // we only have work to do if a and b are not on the same edge
-        // walk on box edge, starting on 'a' until we reach 'b'
-        // on each iteration, move to the next edge (counter-clockwise)
-        // and return the corners until b is reached
-        // note: a and b may start on the same edge, this means we need to do a full loop on the box's edge
-        loop {
-            match (a_bt, a_lr) {
-                (BoundingBoxTopBottomEdge::Top, lr) => {
-                    // move to left edge
-                    a_bt = BoundingBoxTopBottomEdge::None;
-                    a_lr = BoundingBoxLeftRightEdge::Left;
-
-                    // add top left corner, if 'a' is not already such a point
-                    if lr != BoundingBoxLeftRightEdge::Left {
-                        new_vertices[new_vertice_count] = self.top_left_corner_index;
-                        new_vertice_count += 1;
-                    }
-                },
-
-                (tb, BoundingBoxLeftRightEdge::Left) => {
-                    // move to bottom edge
-                    a_bt = BoundingBoxTopBottomEdge::Bottom;
-                    a_lr = BoundingBoxLeftRightEdge::None;
-
-                    // add bottom left corner, if 'a' is not such a point
-                    if tb != BoundingBoxTopBottomEdge::Bottom {
-                        new_vertices[new_vertice_count] = self.bottom_left_corner_index;
-                        new_vertice_count += 1;
-                    }
-                },
-
-                (BoundingBoxTopBottomEdge::Bottom, lr) => {
-                    // move to right edge
-                    a_bt = BoundingBoxTopBottomEdge::None;
-                    a_lr = BoundingBoxLeftRightEdge::Right;
-
-                    // add bottom right corner, if 'a' is not such a point
-                    if lr != BoundingBoxLeftRightEdge::Right {
-                        new_vertices[new_vertice_count] = self.bottom_right_corner_index;
-                        new_vertice_count += 1;
-                    }
-                },
-
-                (tb, BoundingBoxLeftRightEdge::Right) => {
-                    // move to top edge
-                    a_bt = BoundingBoxTopBottomEdge::Top;
-                    a_lr = BoundingBoxLeftRightEdge::None;
-
-                    // add top right corner, if 'a' is not such a point
-                    if tb != BoundingBoxTopBottomEdge::Top {
-                        new_vertices[new_vertice_count] = self.top_right_corner_index;
-                        new_vertice_count += 1;
-                    }
-                },
-
-                (BoundingBoxTopBottomEdge::None, BoundingBoxLeftRightEdge::None) => panic!("It seems that either 'a' ({:?}) or 'b' ({:?}) are not on the box's edge. Cannot link vertices not on the edge.", pa, pb)
-            }
-
-            if (a_bt != BoundingBoxTopBottomEdge::None && a_bt == b_bt) || (a_lr != BoundingBoxLeftRightEdge::None && a_lr == b_lr) {
-                break;
-            } else if new_vertice_count == MAX_CORNERS {
-                panic!("It seems that either 'a' ({:?}) or 'b' ({:?}) are not on the box's edge. Cannot link vertices not on the edge.", pa, pb);
-            }
-        }
-
-        (new_vertice_count, new_vertices)
-    }
-
     pub fn calculate_corners(&mut self) {
         // add all corners to the vertice list as they will be used for closing cells
-        let top_right = self.bounding_box.top_right().clone();
-        let top_left = Point { x: self.bounding_box.left(), y: self.bounding_box.top() };
-        let bottom_left = self.bounding_box.bottom_left().clone();
-        let bottom_right = Point { x: self.bounding_box.right(), y: self.bounding_box.bottom() };
 
-        // counter-clockwise
-        self.top_left_corner_index = self.vertices.pushi(top_left);
-        self.bottom_left_corner_index = self.vertices.pushi(bottom_left);
-        self.bottom_right_corner_index = self.vertices.pushi(bottom_right);
-        self.top_right_corner_index = self.vertices.pushi(top_right);
-    }
-
-    /// Clip a voronoi edge on the bounding box's edge, if the edge crosses the bounding box.
-    ///
-    /// Returns an index to the new vertex where the clip has occured.
-    fn clip_voronoi_edge(&mut self, inside: usize, outside: usize) -> Option<usize> {
-        let inside_pos = &self.vertices[inside];
-        let outside_pos = &self.vertices[outside];
-        let clip = self.bounding_box.project_ray_closest(inside_pos, &Point { x: outside_pos.x - inside_pos.x, y: outside_pos.y - inside_pos.y });
-
-        if let Some(clip) = clip {
-            // TODO reuse point when same edge is provided by neighbor in the other direction
-            self.vertices.push(clip);
-            Some(self.vertices.len() - 1)
-        } else {
-            None
+        self.first_corner_index = self.vertices.len();
+        for corner in self.bounding_box.corners() {
+            self.vertices.push(corner);
         }
     }
 
@@ -235,7 +118,7 @@ impl<'t> CellBuilder<'t> {
         orthogonal.x *= 1.0 / ortho_length;
         orthogonal.y *= 1.0 / ortho_length;
 
-        // project to inifity
+        // project to "inifity"
         let infinity = 1e+10_f64;
         let projected = Point { x: circumcenter_pos.x + orthogonal.x * infinity, y: circumcenter_pos.y + orthogonal.y * infinity };
         let v = self.vertices.pushi(projected);
@@ -244,46 +127,47 @@ impl<'t> CellBuilder<'t> {
         Some(v)
     }
 
-    /// Given a ```cell``` and a voronoi edge prev -> c, checks for an intersection of the edge with the bounding box
-    /// and adds the clipped edge to the cell if there is an intersection.
-    fn try_clip_edge(&mut self, cell: &mut Vec<usize>, prev: usize, c: usize) {
-        let pos = &self.vertices[c];
-        let prev_pos = &self.vertices[prev];
-        let prev_to_pos = Point { x: pos.x - prev_pos.x, y: pos.y - prev_pos.y };
-        let (first_clip, second_clip) = self.bounding_box.project_ray(prev_pos, &prev_to_pos);
 
-        // intersection found, but does the intersection happen in the [prev -> c edge] or after it
-        // i.e. check to see if first_clip is after c (pos) in the projection ray
-        if first_clip.is_some() && bounding_box::order_points_on_ray(prev_pos, &prev_to_pos, Some(pos.clone()), first_clip.clone()).0 == first_clip {
-            if let Some(second_clip) = second_clip {
-                let first_clip = first_clip.unwrap();
-                let (first, second) = (first_clip, second_clip);
+    /// Clip a voronoi edge on the bounding box's edge, if the edge crosses the bounding box.
+    ///
+    /// The edge may cross the bounding box once (when ```a``` is inside the box) or twice (when ```a``` and ```b``` are outside the box).
+    /// Returns up to two indexes to the new vertex where the clip has occured.
+    /// * edge is oriented a -> b, i.e. a comes before b
+    fn clip_voronoi_edge(&mut self, a: usize, b: usize) -> (Option<usize>, Option<usize>) {
+        let a_pos = &self.vertices[a];
+        let b_pos = &self.vertices[b];
+        let a_to_b = &Point { x: b_pos.x - a_pos.x, y: b_pos.y - a_pos.y };
 
-                // edge clipped twice on the bounding box, need to wrap around as needed
-                // FIXME: degenerated8 site 2 cell includes site 1 due to colinear degeneration - this case should not wrap around
-                let (link_count, links) = self.get_link_vertices_around_box_edge(
-                    &first,
-                    &second);
+        // TODO reuse point when same edge is provided by neighbor in the other direction
+        match self.bounding_box.project_ray(a_pos, a_to_b) {
+            // single intersection (i.e a is inside bounding box and b is outside)
+            (Some(first_clip), None) => {
+                // insert intersection and return
+                (Some(self.vertices.pushi(first_clip)), None)
+            },
 
-                let f = self.vertices.pushi(first);
-                cell.push(f);
+            // two intersecting points (i.e. a and b are outside bounding box but a->b cross bounding box)
+            (Some(first_clip), Some(second_clip)) => {
+                // it is possible that a -> b intersects the bounding box in a point after b, i.e. the edge does not cross the box
+                // check if first_clip comes before b
+                if bounding_box::order_points_on_ray(a_pos, a_to_b, Some(b_pos.clone()), Some(first_clip.clone())).0 == Some(first_clip.clone()) {
+                    (Some(self.vertices.pushi(first_clip)), Some(self.vertices.pushi(second_clip)))
+                } else {
+                    // a -> b -> box: no intersection
+                    (None, None)
+                }
+            },
 
-                cell.extend_from_slice(&links[..link_count]);
+            // invalid case
+            (None, Some(_)) => panic!("project_ray must not return second intersection without returning the first intersection"),
 
-                let s = self.vertices.pushi(second);
-                cell.push(s);
-
-                #[cfg(debug_assertions)] println!("  Edge {prev} {:?} -> {c} {:?}: outside the box, but crossed at {f} {:?} and {s} {:?}.", self.vertices[prev], self.vertices[c], self.vertices[f], self.vertices[s]);
-            } else {
-                // else the edge intersected in one of the corners only
-                // FIXME what does this mean? do we need to wrap around?
-                let f = self.vertices.pushi(first_clip.unwrap());
-                cell.push(f);
-                #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box, but crossed at {f} only.");
-            }
-        } else {
-            #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box. Dropped.");
+            // no intersection
+            (None, None) => (None, None),
         }
+    }
+
+    fn is_vertex_inside_bounding_box(&self, vertex: usize) -> bool {
+        *self.is_vertex_inside_bounding_box.get(vertex).unwrap_or(&false)
     }
 
     /// Builds cells for each site.
@@ -295,21 +179,10 @@ impl<'t> CellBuilder<'t> {
         let num_of_sites = sites.len();
         let mut cells: Vec<Vec<usize>> = vec![Vec::new(); num_of_sites];
 
-        let is_inside: Vec<bool> = self.vertices.iter().map(|c| self.bounding_box.is_inside(c)).collect();
         let mut tmp_cell = Vec::new();
-
-        let is_inside = |c| {
-            if c < is_inside.len() {
-                is_inside[c]
-            } else {
-                false
-            }
-        };
 
         // fill in cells
         for edge in 0..triangulation.triangles.len() {
-        //for edge in [39] {
-        //for edge in [3] {
             let site = site_of_incoming(triangulation, edge);
             let cell = &mut cells[site];
 
@@ -347,79 +220,13 @@ impl<'t> CellBuilder<'t> {
                     if let Some(extension) = self.extend_voronoi_vertex(last_edge) {
                         tmp_cell.push(extension);
                     }
-
-                    // FIXME degenerated4 and 8 - not single triangle requirement, when is this wrong?
-                    // if hull site has single triangle / circumcenter, then we cannot rely on the orientation
-                    // and need to check for ourselves
-                    let site_pos = &self.sites[site];
-                    if robust::orient2d((&self.vertices[*tmp_cell.first().unwrap()]).into(), (&self.vertices[*tmp_cell.last().unwrap()]).into(), site_pos.into()) <= 0. {
-                        tmp_cell.reverse();
-                    };
                 } else {
                     tmp_cell.extend(iter.map(utils::triangle_of_edge));
                 }
 
-                #[cfg(debug_assertions)] println!("  Temp: {:?}", tmp_cell);
-
-                let (first_index, first, first_inside) = if let Some(inside) = tmp_cell.iter().enumerate().filter(|(_, &c)| is_inside(c)).next() {
-                    (inside.0, *inside.1, true)
-                } else {
-                    // FIXME: degenerated4.json - site 1 is this case and the edge is not rendered correctly
-                    #[cfg(debug_assertions)] println!("  [{site}/{edge}] Cell has no vertices inside the box. It only crosses the box.");
-                    (0, tmp_cell[0], false)
-                };
-
-                // walk voronoi edges counter clockwise and clip as needed
-                let mut prev = first;
-                let mut prev_inside = first_inside;
-
-                #[cfg(debug_assertions)] println!("  Start: Temp[{first_index}] = {first}.");
-
                 // iterate over each voronoi edge starting on edge first -> first + 1
                 // iterate on reverse to get counter-clockwise orientation
-                for &c in tmp_cell.iter().rev().cycle().skip(tmp_cell.len() - first_index).take(tmp_cell.len()) {
-                    let inside = is_inside(c);
-
-                    match (prev_inside, inside) {
-                        // voronoi edge has both vertices outside bounding box
-                        (false, false) => {
-                            // but may cross the box, so check for an intersection
-                            self.try_clip_edge(cell, prev, c);
-                        },
-
-                        // entering bounding box - edge crosses bounding box edge from the outside
-                        (false, true) => {
-                            let clip = self.clip_voronoi_edge(c, prev).expect("Edge crosses box, intersection must exist.");
-
-                            // we could have left from one edge of the box and entered from another, thus we need to wrap around the bounding box corners
-                            // last vertex in the cell is the one clipped when exiting the bounding box
-                            let (link_count, links) = self.get_link_vertices_around_box_edge(
-                                &self.vertices[*cell.last().expect("Invariant by starting inside box")],
-                                &self.vertices[clip]);
-
-                            #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: Re-entering box at {clip} and wrapped around {:?}", &links[..link_count]);
-
-                            cell.extend_from_slice(&links[..link_count]);
-                            cell.push(clip);
-                        },
-
-                        // leaving bounding box - edge crosses bounding box edge from the inside
-                        (true, false) => {
-                            cell.pushi(prev);
-                            cell.pushi(self.clip_voronoi_edge(prev, c).expect("Edge crosses box, intersection must exist."));
-                            #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: Leaving box. Added {prev} and clipped at {}", cell.last().unwrap());
-                        },
-
-                        // edge inside box
-                        (true, true) => {
-                            #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: Inside box. Added {prev}.");
-                            cell.push(prev);
-                        },
-                    }
-
-                    prev = c;
-                    prev_inside = inside;
-                }
+                self.clip_cell(&tmp_cell, cell, site);
 
                 #[cfg(debug_assertions)] println!("  [{site}/{edge}] Cell: {:?}", cell);
             }
@@ -427,6 +234,150 @@ impl<'t> CellBuilder<'t> {
 
         cells
     }
+
+    /// Given two vertices on the hull (first clip and second clip) check whether there is a need to add the bounding box corners in the cell
+    fn insert_clip_and_wrap_around_corners(&mut self, site: usize, cell: &mut Vec<usize>, first_clip: usize, second_clip: usize) {
+        if cell.last() != Some(&first_clip) {
+            cell.push(first_clip);
+        }
+
+        let first_edge = self.bounding_box.which_edge(&self.vertices[first_clip]).expect("First clipped value is expected to be on the edge of the bounding box.");
+        let second_edge = self.bounding_box.which_edge(&self.vertices[second_clip]).expect("Second clipped value is expected to be on the edge of the bounding box.");
+        #[cfg(debug_assertions)] let len = cell.len();
+
+        // first_edge is to the right of first_clip -> second_clip
+        // second_edge is to the left of first_clip -> second_clip
+        if self.corner_ownership[first_edge] == site {
+            // first_edge and all corners counter clockwise need to be added to this cell
+            let mut edge = first_edge;
+            while edge != second_edge && self.corner_ownership[edge] == site {
+                cell.push(self.first_corner_index + edge);
+                self.corner_ownership[edge] = EMPTY; // prevent another edge from duplicating this corner in the cell
+                edge = bounding_box::next_edge(edge);
+            }
+            cell.push(second_clip);
+        } else if self.corner_ownership[second_edge] == site {
+            // second_edge and all corners clockwise need to be added to this cell
+            cell.push(second_clip);
+            let mut edge = second_edge;
+            while edge != first_edge && self.corner_ownership[edge] == site {
+                cell.push(self.first_corner_index + edge);
+                self.corner_ownership[edge] = EMPTY;
+                edge = bounding_box::next_edge(edge);
+            }
+        } else {
+            // line first_clip -> second_clip crosses the box but does not need to wrap around corners
+            cell.push(second_clip);
+        }
+
+        #[cfg(debug_assertions)] println!("  [{site}] Edge {first_clip} ({first_edge}) -> {second_clip} ({second_edge}). Wrapping around {:?}", &cell[len-1..]);
+    }
+
+    fn clip_cell(&mut self, tmp_cell: &Vec<usize>, cell: &mut Vec<usize>, site: usize) {
+        #[cfg(debug_assertions)] println!("  Temp: {:?}", tmp_cell);
+
+        // find the first vertex inside the bounding box
+        let (first_index, first, first_inside) = if let Some(inside) = tmp_cell.iter().enumerate().filter(|(_, &c)| self.is_vertex_inside_bounding_box(c)).next() {
+            (inside.0, *inside.1, true)
+        } else {
+            // when cell is entirely outside the bounding box, it will always fall into the loop case below that the edge needs to be clipped
+            (0, tmp_cell[0], false)
+        };
+
+        // walk voronoi edges counter clockwise and clip as needed
+        let mut prev = first;
+        let mut prev_inside = first_inside;
+        let mut cell_open = false; // everytime we leave the cell, we leave it open and we need to close it
+        #[cfg(debug_assertions)] println!("  Start: Temp[{first_index}] = {first}.");
+        for &c in tmp_cell.iter().rev().cycle().skip(tmp_cell.len() - first_index).take(tmp_cell.len()) {
+            let inside = self.is_vertex_inside_bounding_box(c);
+
+            match (prev_inside, inside) {
+                // voronoi edge has both vertices outside bounding box
+                (false, false) => {
+                    // but may cross the box, so check for an intersection
+                    let (first_clip, second_clip) = self.clip_voronoi_edge(prev, c);
+                    if let Some(first_clip) = first_clip {
+                        if cell_open {
+                            // an edge crossing the box still leaves the cell open, but it may be able to wrap around a corner
+                            // this is an edge case, see degerated10.json input
+                            self.insert_clip_and_wrap_around_corners(site, cell,
+                                *cell.last().expect("Cell must not be empty because we started from a vertex inside the bounding box."),
+                                first_clip);
+                            #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box. The box was open.");
+                        }
+
+                        self.insert_clip_and_wrap_around_corners(site, cell,
+                           first_clip,
+                second_clip.expect("Two intersection points need to occur when a line crosses the bounding box"));
+                        #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box. Entered at {} and left at {}", first_clip, second_clip.unwrap());
+                    } else {
+                        #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box, no intersection.");
+                    }
+                },
+
+                // entering bounding box - edge crosses bounding box edge from the outside
+                (false, true) => {
+                    let (first_clip, second_clip) = self.clip_voronoi_edge(c, prev);
+                    let first_clip = first_clip.expect("Edge crosses box, intersection must exist.");
+                    debug_assert!(second_clip.is_none(), "Cannot have two intersections with the bounding box when one of the edge's vertex is inside the bounding box");
+                    self.insert_clip_and_wrap_around_corners(site, cell,
+                        *cell.last().expect("Cell must not be empty because we started from a vertex inside the bounding box."),
+                       first_clip);
+                    cell_open = false;
+                    #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}: Entering box at {first_clip} (previously left from {})");
+                },
+
+                // leaving bounding box - edge crosses bounding box edge from the inside
+                (true, false) => {
+                    let (first_clip, second_clip) = self.clip_voronoi_edge(prev, c);
+                    let first_clip = first_clip.expect("Edge crosses box, intersection must exist.");
+                    debug_assert!(second_clip.is_none(), "Cannot have two intersections with the bounding box when one of the edge's vertex is inside the bounding box");
+
+                    cell.push(prev);
+                    cell.push(first_clip);
+                    cell_open = true;
+                    #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}: Leaving box. Added {prev} and clipped at {}", cell.last().unwrap());
+                },
+
+                // edge inside box
+                (true, true) => {
+                    #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}: Inside box. Added {prev}.");
+                    cell.push(prev);
+                },
+            }
+
+            prev = c;
+            prev_inside = inside;
+        }
+    }
+}
+
+/// Calculates to which sites each corner belongs to.
+fn calculate_corner_ownership(corners: &[Point], triangulation: &Triangulation, sites: &Vec<Point>, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> Vec<usize> {
+    // corners counter-clockwise
+    let mut corner_owners: Vec<usize> = Vec::with_capacity(corners.len());
+
+    // the end of the shortest path between any site and a point is the site containing that point
+    // we use this to figure out which sites own which corners
+    // the site we use to build the path does not matter, but picking a closer site to start with is most efficient
+    // thus we use the owning site for the last corner to calculate the next
+    let mut site = *triangulation.hull.first().expect("Hull is at least a triangle.");
+    for corner in corners {
+        let owner = crate::iterator::shortest_path_iter_from_triangulation(
+            triangulation,
+            sites,
+            site_to_incoming_leftmost_halfedge,
+            site,
+            corner.clone())
+            .last()
+            .expect("There must be one site that is the closest.");
+
+        site = owner;
+        corner_owners.push(owner);
+    }
+
+    corner_owners
 }
 
 fn calculate_incoming_edges(triangulation: &Triangulation, num_of_sites: usize) -> Vec<usize> {
