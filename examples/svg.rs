@@ -4,7 +4,7 @@ use rand::Rng;
 use voronoice::{BoundingBox, Point, Voronoi, VoronoiBuilder, ClipBehavior};
 use std::{fs::File, io::Write, path::PathBuf};
 const CANVAS_SIZE: f64 = 800.;
-const CANVAS_MARGIN: f64 = 0.2;
+const CANVAS_MARGIN: f64 = 0.1;
 const POINT_SIZE: usize = 2;
 const CIRCUMCENTER_CIRCLE_COLOR: &str = "black";
 const SITE_COLOR: &str = "black";
@@ -59,15 +59,23 @@ struct Args {
     #[clap(long)]
     circumcenter: bool,
 
-    // /// Zoom (scales) rendering
-    // #[clap(short, long, default_value_t = 1.0)]
-    // zoom: f64,
+    /// Zoom (scales) rendering
+    #[clap(short, long, default_value_t = 1.0)]
+    zoom: f64,
+
+    /// Pans the view on x
+    #[clap(long, default_value_t = 0.)]
+    pan_x: f64,
+
+    /// Pans the view on y
+    #[clap(long, default_value_t = 0.)]
+    pan_y: f64,
 }
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
-    let sites = if let Some(path) = args.path {
+    let sites = if let Some(path) = &args.path {
         // laod sites from file
         let file = File::open(path)?;
         serde_json::from_reader(file)?
@@ -87,7 +95,7 @@ fn main() -> std::io::Result<()> {
             .collect::<Vec<_>>()
     };
 
-    if let Some(write_sites) = args.write_sites {
+    if let Some(write_sites) = &args.write_sites {
         serde_json::to_writer_pretty(&File::create(write_sites)?, &sites)?
     }
 
@@ -133,16 +141,20 @@ fn main() -> std::io::Result<()> {
     //     [0., 0.],
     // ];
 
-    let sites = center_rotate_and_scale(&sites, args.rotate.to_radians());
+    let transform = build_transformation(&sites, &args);
+    let sites = sites.iter().map(|&[x, y]| Point { x, y }).collect();
 
     // build voronoi
     let voronoi = VoronoiBuilder::default()
         .set_sites(sites)
-        .set_bounding_box(BoundingBox::new(Point { x: CANVAS_SIZE / 2.0, y: CANVAS_SIZE / 2.0 }, CANVAS_SIZE * (1.0 - CANVAS_MARGIN), CANVAS_SIZE * (1.0 - CANVAS_MARGIN)))
+        .set_bounding_box(transform.bounding_box())
         .set_lloyd_relaxation_iterations(args.lloyd_iterations)
         .set_clip_behavior(args.clip_behavior)
         .build()
         .expect("Couldn't build voronoi");
+
+    let bounding_box_top_left = transform.transform(&Point { x: voronoi.bounding_box().left(), y: voronoi.bounding_box().top() });
+    let bounding_box_side = transform.transform(voronoi.bounding_box().bottom_left()).y - bounding_box_top_left.y;
 
     // generate SVG
     let contents = format!(
@@ -158,15 +170,15 @@ fn main() -> std::io::Result<()> {
 </svg>"#,
         width = CANVAS_SIZE,
         height = CANVAS_SIZE,
-        bb_x = voronoi.bounding_box().left(),
-        bb_y = voronoi.bounding_box().top(),
-        bb_width = voronoi.bounding_box().width(),
-        bb_height = voronoi.bounding_box().height(),
-        sites = render_point(voronoi.sites(), SITE_COLOR, false),
-        circumcenters = render_point(voronoi.vertices(), CIRCUMCENTER_COLOR, true),
-        voronoi_edges = render_voronoi_edges(&voronoi),
-        triangles = render_triangles(&voronoi),
-        circumcenter_circles = if args.circumcenter { render_circumcenters(&voronoi) } else { "".to_string() },
+        bb_x = bounding_box_top_left.x,
+        bb_y = bounding_box_top_left.y,
+        bb_width = bounding_box_side,
+        bb_height = bounding_box_side,
+        sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false),
+        circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, true),
+        voronoi_edges = render_voronoi_edges(&transform, &voronoi),
+        triangles = render_triangles(&transform, &voronoi),
+        circumcenter_circles = if args.circumcenter { render_circumcenters(&transform, &voronoi) } else { "".to_string() },
     );
 
     if args.debug {
@@ -177,14 +189,14 @@ fn main() -> std::io::Result<()> {
     File::create(args.output_path)?.write_all(contents.as_bytes())
 }
 
-fn render_triangles(voronoi: &Voronoi) -> String {
+fn render_triangles(transform: &Transform, voronoi: &Voronoi) -> String {
     let triangulation = voronoi.triangulation();
     let points = voronoi.sites();
 
     (0..triangulation.triangles.len()).fold(String::new(), |acc, e| {
         if e > triangulation.halfedges[e] || triangulation.halfedges[e] == EMPTY {
-            let start = &points[triangulation.triangles[e]];
-            let end = &points[triangulation.triangles[next_halfedge(e)]];
+            let start = transform.transform(&points[triangulation.triangles[e]]);
+            let end = transform.transform(&points[triangulation.triangles[next_halfedge(e)]]);
             let color = if triangulation.halfedges[e] == EMPTY { TRIANGULATION_HULL_COLOR } else { TRIANGULATION_LINE_COLOR };
             let mid = Point { x: (start.x + end.x) / 2.0, y: (start.y + end.y) / 2.0 };
 
@@ -208,7 +220,7 @@ fn render_triangles(voronoi: &Voronoi) -> String {
     })
 }
 
-fn render_point(points: &[Point], color: &str, jitter: bool) -> String {
+fn render_point(transform: &Transform, points: &[Point], color: &str, jitter: bool) -> String {
     let mut rng = rand::thread_rng();
     let jitter_range = rand::distributions::Uniform::new(-JITTER_RANGE_VALUE, JITTER_RANGE_VALUE);
 
@@ -216,6 +228,7 @@ fn render_point(points: &[Point], color: &str, jitter: bool) -> String {
         .iter()
         .enumerate()
         .fold(String::new(), |acc, (i, p)| {
+            let p = transform.transform(p);
             let (x, y) = if jitter {
                 (p.x + rng.sample(jitter_range), p.y + rng.sample(jitter_range))
             } else {
@@ -231,10 +244,11 @@ fn render_point(points: &[Point], color: &str, jitter: bool) -> String {
         })
 }
 
-fn render_circumcenters(voronoi: &Voronoi) -> String {
+fn render_circumcenters(transform: &Transform, voronoi: &Voronoi) -> String {
     voronoi.vertices().iter().enumerate().fold(String::new(), |acc, (triangle, circumcenter)| {
         if triangle < voronoi.triangulation().triangles.len() / 3  {
-            let point_on_circle = &voronoi.sites()[voronoi.triangulation().triangles[triangle * 3]];
+            let circumcenter = transform.transform(circumcenter);
+            let point_on_circle = transform.transform(&voronoi.sites()[voronoi.triangulation().triangles[triangle * 3]]);
             let radius = ((point_on_circle.x - circumcenter.x).powi(2) + (point_on_circle.y - circumcenter.y).powi(2)).sqrt();
 
             acc + &format!(
@@ -250,13 +264,16 @@ fn render_circumcenters(voronoi: &Voronoi) -> String {
     })
 }
 
-fn render_voronoi_edges(voronoi: &Voronoi) -> String {
+fn render_voronoi_edges(transform: &Transform, voronoi: &Voronoi) -> String {
     let mut buffer = String::new();
     voronoi.iter_cells().for_each(|cell| {
         // TODO: cycle() needs clone, instead of returning Impl Iterator, return a proper iterator struct
         // using a ugly chain below to get (current, next) vertices of a cell
         if let Some(first) = cell.iter_vertices().next() {
             cell.iter_vertices().zip(cell.iter_vertices().skip(1).chain(std::iter::once(first))).for_each(|(start, end)|{
+                let start = transform.transform(start);
+                let end = transform.transform(end);
+
                 buffer += &format!(r#"<line x1="{x0}" y1="{y0}" x2="{x1}" y2="{y1}" style="stroke:{color};stroke-width:{width}" />"#,
                     x0 = start.x,
                     y0 = start.y,
@@ -271,9 +288,31 @@ fn render_voronoi_edges(voronoi: &Voronoi) -> String {
     buffer
 }
 
+struct Transform {
+    scale: f64,
+    offset: Point,
+    center: Point,
+    farthest_distance: f64,
+    rotation: f64
+}
+
+impl Transform {
+    fn transform(&self, p: &Point) -> Point {
+        Point {
+            x: self.scale * (p.x *  self.rotation.cos() - p.y * self.rotation.sin()) + self.offset.x,
+            y: self.scale * (p.y *  self.rotation.cos() + p.x * self.rotation.sin()) + self.offset.y,
+        }
+    }
+
+    fn bounding_box(&self) -> BoundingBox {
+        let box_side = self.farthest_distance * 2.0 * (1.0 - CANVAS_MARGIN);
+        BoundingBox::new(self.center.clone(), box_side, box_side)
+    }
+}
+
 /// Finds the center point and farthest point from it, then generates a new vector of
 /// scaled and offset points such that they fit between [0..SIZE]
-fn center_rotate_and_scale(points: &[[f64;2]], rotation: f64) -> Vec<Point> {
+fn build_transformation(points: &[[f64;2]], args: &Args) -> Transform {
     let mut center = points.iter().fold([0., 0.], |acc, p| [acc[0] + p[0], acc[1] + p[1]]);
     center[0] /= points.len() as f64;
     center[1] /= points.len() as f64;
@@ -288,17 +327,22 @@ fn center_rotate_and_scale(points: &[[f64;2]], rotation: f64) -> Vec<Point> {
         .unwrap()
         .sqrt();
 
-    let scale = CANVAS_SIZE / (farthest_distance * 2.0);
-    let offset = (
-        (CANVAS_SIZE / 2.0) - (scale * center[0]),
-        (CANVAS_SIZE / 2.0) - (scale * center[1]),
-    );
+    let scale = args.zoom * CANVAS_SIZE / (farthest_distance * 2.0);
+    let offset = Point {
+        x: (CANVAS_SIZE / 2.0) - (scale * center[0]) - args.pan_x,
+        y: (CANVAS_SIZE / 2.0) - (scale * center[1]) - args.pan_y,
+    };
 
-    points
-        .iter()
-        .map(|p| Point {
-            x: scale * (p[0] *  rotation.cos() - p[1] * rotation.sin()) + offset.0,
-            y: scale * (p[1] *  rotation.cos() + p[0] * rotation.sin()) + offset.1,
-        })
-        .collect()
+    let center = Point {
+        x: center[0],
+        y: center[1],
+    };
+
+    Transform {
+        scale,
+        offset,
+        center,
+        farthest_distance,
+        rotation: args.rotate.to_radians(),
+    }
 }
