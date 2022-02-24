@@ -246,10 +246,6 @@ impl BoundingBox {
     pub (crate) fn project_ray_closest(&self, point: &Point, direction: &Point) -> Option<Point> {
         self.project_ray(point, direction).0
     }
-
-    pub (crate) fn diagonal_square(&self) -> f64 {
-        self.height().powi(2) + self.width().powi(2)
-    }
 }
 
 /// Given a ray defined by `point` and `direction`, and two points `a` and `b` on such ray, returns a tuple (w, z) where point <= w <= z.

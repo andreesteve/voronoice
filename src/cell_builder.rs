@@ -226,10 +226,12 @@ impl<'t> CellBuilder<'t> {
 
         // normalizing the orthogonal vector
         let ortho_length = (orthogonal.x * orthogonal.x + orthogonal.y * orthogonal.y).sqrt();
-        orthogonal.x *= self.bounding_box.diagonal_square() / ortho_length;
-        orthogonal.y *= self.bounding_box.diagonal_square() / ortho_length;
+        orthogonal.x *= 1.0 / ortho_length;
+        orthogonal.y *= 1.0 / ortho_length;
 
-        let projected = Point { x: circumcenter_pos.x + orthogonal.x, y: circumcenter_pos.y + orthogonal.y };
+        // project to inifity
+        let infinity = 1e+10_f64;
+        let projected = Point { x: circumcenter_pos.x + orthogonal.x * infinity, y: circumcenter_pos.y + orthogonal.y * infinity };
         let v = self.vertices.pushi(projected);
 
         #[cfg(debug_assertions)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) extended orthogonally to {a} -> {b} at {}", v);
