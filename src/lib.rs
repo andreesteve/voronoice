@@ -55,7 +55,7 @@ use std::{fmt::Display, str::FromStr};
 
 use delaunator::{EMPTY, Triangulation, triangulate};
 use self::{
-    utils::{cicumcenter, site_of_incoming},
+    utils::cicumcenter,
     cell_builder::*
 };
 
@@ -160,8 +160,6 @@ impl Voronoi {
         // triangulation.triangles is the indexing of each half-edge to source site
         // 3 * t, 3 * t + 1 and 3 * t + 2 are the vertices of a triangle in this vector
         let num_of_triangles = triangulation.triangles.len() / 3;
-        let num_of_sites = sites.len();
-
         if num_of_triangles == 0 {
             return None
         }
@@ -173,28 +171,13 @@ impl Voronoi {
             &sites[triangulation.triangles[3* t + 2]])
         ).collect();
 
-        // create map between site and its left-most incoming half-edge
-        // this is especially important for the sites along the convex hull boundary when iterating over its neighoring sites
-        let mut site_to_incoming_leftmost_halfedge = vec![EMPTY; num_of_sites];
-
-        for e in 0..triangulation.triangles.len() {
-            let s = site_of_incoming(&triangulation, e);
-            if site_to_incoming_leftmost_halfedge[s] == EMPTY || triangulation.halfedges[e] == EMPTY {
-                site_to_incoming_leftmost_halfedge[s] = e;
-            }
-        }
-
-        // if input sites has lot of coincident points (very very close), the underlying triangulation will be problematic and those points may be ignored in the triangulation
-        // thus they won't be reacheable and this will lead to problems down the line as we build the voronoi graph
-        debug_assert!(!site_to_incoming_leftmost_halfedge.iter().any(|e| *e == EMPTY), "One or more sites is not reacheable in the triangulation mesh. This usually indicate coincident points.");
-
         // create cell builder to build cells and update circumcenters
         let cell_builder = CellBuilder::new(&triangulation, &sites, circumcenters, bounding_box.clone(), clip_behavior);
-        let result = cell_builder.build(&site_to_incoming_leftmost_halfedge);
+        let result = cell_builder.build();
 
         Some(Voronoi {
             bounding_box,
-            site_to_incoming_leftmost_halfedge,
+            site_to_incoming_leftmost_halfedge: result.site_to_incoming_leftmost_halfedge,
             triangulation,
             sites,
             clip_behavior,

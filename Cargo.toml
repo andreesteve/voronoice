@@ -42,5 +42,9 @@ name = "assertions"
 path = "examples/assertions.rs"
 
 [[example]]
+name = "generator"
+path = "examples/generator.rs"
+
+[[example]]
 name = "svg"
 path = "examples/svg.rs"

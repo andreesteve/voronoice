@@ -70,10 +70,19 @@ struct Args {
     /// Pans the view on y
     #[clap(long, default_value_t = 0.)]
     pan_y: f64,
+
+    /// Print only sites in this list
+    #[clap(long)]
+    filter_sites: Vec<usize>,
+
+    /// Optional bounding box side length (width = height = side)
+    #[clap(long)]
+    bounding_box_side: Option<f64>,
 }
 
 fn main() -> std::io::Result<()> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    args.filter_sites.sort();
 
     let sites = if let Some(path) = &args.path {
         // laod sites from file
@@ -147,7 +156,7 @@ fn main() -> std::io::Result<()> {
     // build voronoi
     let voronoi = VoronoiBuilder::default()
         .set_sites(sites)
-        .set_bounding_box(transform.bounding_box())
+        .set_bounding_box(transform.bounding_box(&args))
         .set_lloyd_relaxation_iterations(args.lloyd_iterations)
         .set_clip_behavior(args.clip_behavior)
         .build()
@@ -176,7 +185,7 @@ fn main() -> std::io::Result<()> {
         bb_height = bounding_box_side,
         sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false),
         circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, true),
-        voronoi_edges = render_voronoi_edges(&transform, &voronoi),
+        voronoi_edges = render_voronoi_edges(&transform, &voronoi, &args),
         triangles = render_triangles(&transform, &voronoi),
         circumcenter_circles = if args.circumcenter { render_circumcenters(&transform, &voronoi) } else { "".to_string() },
     );
@@ -264,9 +273,15 @@ fn render_circumcenters(transform: &Transform, voronoi: &Voronoi) -> String {
     })
 }
 
-fn render_voronoi_edges(transform: &Transform, voronoi: &Voronoi) -> String {
+fn render_voronoi_edges(transform: &Transform, voronoi: &Voronoi, args: &Args) -> String {
     let mut buffer = String::new();
-    voronoi.iter_cells().for_each(|cell| {
+
+    for cell in voronoi.iter_cells() {
+        if args.filter_sites.len() > 0 && args.filter_sites.binary_search(&cell.site()).is_err() {
+            // do not print site if not in filter list
+            continue;
+        }
+
         // TODO: cycle() needs clone, instead of returning Impl Iterator, return a proper iterator struct
         // using a ugly chain below to get (current, next) vertices of a cell
         if let Some(first) = cell.iter_vertices().next() {
@@ -283,11 +298,12 @@ fn render_voronoi_edges(transform: &Transform, voronoi: &Voronoi) -> String {
                     color = VORONOI_EDGE_COLOR);
             });
         }
-    });
+    }
 
     buffer
 }
 
+#[derive(Default, Clone)]
 struct Transform {
     scale: f64,
     offset: Point,
@@ -297,15 +313,16 @@ struct Transform {
 }
 
 impl Transform {
-    fn transform(&self, p: &Point) -> Point {
+    fn transform<T : std::borrow::Borrow<Point>>(&self, p: T) -> Point {
+        let p = p.borrow();
         Point {
             x: self.scale * (p.x *  self.rotation.cos() - p.y * self.rotation.sin()) + self.offset.x,
             y: self.scale * (p.y *  self.rotation.cos() + p.x * self.rotation.sin()) + self.offset.y,
         }
     }
 
-    fn bounding_box(&self) -> BoundingBox {
-        let box_side = self.farthest_distance * 2.0 * (1.0 - CANVAS_MARGIN);
+    fn bounding_box(&self, args: &Args) -> BoundingBox {
+        let box_side = args.bounding_box_side.unwrap_or(self.farthest_distance * 2.0 * (1.0 - CANVAS_MARGIN));
         BoundingBox::new(self.center.clone(), box_side, box_side)
     }
 }

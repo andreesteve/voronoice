@@ -8,6 +8,7 @@ pub struct CellBuilder<'t> {
     triangulation: &'t Triangulation,
     sites: &'t Vec<Point>,
     vertices: Vec<Point>,
+    site_to_incoming_leftmost_halfedge: Vec<usize>,
     bounding_box: BoundingBox,
     clip_behavior: ClipBehavior,
     top_left_corner_index: usize,
@@ -18,7 +19,8 @@ pub struct CellBuilder<'t> {
 
 pub struct CellBuilderResult {
     pub cells: Vec<Vec<usize>>,
-    pub vertices: Vec<Point>
+    pub vertices: Vec<Point>,
+    pub site_to_incoming_leftmost_halfedge: Vec<usize>,
 }
 
 trait PushAndReturnIndex<T> {
@@ -36,9 +38,12 @@ impl<T> PushAndReturnIndex<T> for Vec<T> {
 
 impl<'t> CellBuilder<'t> {
     pub fn new(triangulation: &'t Triangulation, sites: &'t Vec<Point>, vertices: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Self {
+        let site_to_incoming_leftmost_halfedge = calculate_incoming_edges(triangulation, sites.len());
+
         Self {
             triangulation,
             sites,
+            site_to_incoming_leftmost_halfedge,
             top_right_corner_index: 0,
             top_left_corner_index: 0,
             bottom_left_corner_index: 0,
@@ -49,22 +54,23 @@ impl<'t> CellBuilder<'t> {
         }
     }
 
-    pub fn build(mut self, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> CellBuilderResult {
+    pub fn build(mut self) -> CellBuilderResult {
         // adds the corners of the bounding box as potential vertices for the voronoi
         let cells = if self.clip_behavior == ClipBehavior::Clip {
             self.calculate_corners();
-            self.build_cells(site_to_incoming_leftmost_halfedge)
+            self.build_cells()
         } else {
-            self.build_cells_no_clip(site_to_incoming_leftmost_halfedge)
+            self.build_cells_no_clip()
         };
 
         CellBuilderResult {
             vertices: self.vertices,
+            site_to_incoming_leftmost_halfedge: self.site_to_incoming_leftmost_halfedge,
             cells
         }
     }
 
-    pub fn build_cells_no_clip(&mut self, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> Vec<Vec<usize>> {
+    fn build_cells_no_clip(&mut self) -> Vec<Vec<usize>> {
         let num_of_sites = self.sites.len();
         let mut cells: Vec<Vec<usize>> = vec![Vec::new(); num_of_sites];
 
@@ -75,7 +81,7 @@ impl<'t> CellBuilder<'t> {
 
             // if cell is empty, it hasn't been processed yet
             if cell.len() == 0 {
-                let leftmost_incoming_edge = site_to_incoming_leftmost_halfedge[site];
+                let leftmost_incoming_edge = self.site_to_incoming_leftmost_halfedge[site];
                 cell.extend(EdgesAroundSiteIterator::new(self.triangulation, leftmost_incoming_edge).map(utils::triangle_of_edge));
             }
         }
@@ -283,7 +289,7 @@ impl<'t> CellBuilder<'t> {
     /// Builds cells for each site.
     /// This won't extend not close the hull.
     /// This will not clip any edges to the bounding box.
-    fn build_cells(&mut self, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> Vec<Vec<usize>> {
+    fn build_cells(&mut self) -> Vec<Vec<usize>> {
         let triangulation = self.triangulation;
         let sites: &Vec<Point> = self.sites;
         let num_of_sites = sites.len();
@@ -312,7 +318,7 @@ impl<'t> CellBuilder<'t> {
                 // edge may or may not be the left-most incoming edge for site, thus get the one
                 // if iterator doesn't start this way, we may end cell vertex iteration early because
                 // we will hit the halfedge in the hull
-                let leftmost_incoming_edge = site_to_incoming_leftmost_halfedge[site];
+                let leftmost_incoming_edge = self.site_to_incoming_leftmost_halfedge[site];
                 let is_site_on_hull = triangulation.halfedges[leftmost_incoming_edge] == EMPTY;
 
                 #[cfg(debug_assertions)] println!();
@@ -423,48 +429,36 @@ impl<'t> CellBuilder<'t> {
     }
 }
 
+fn calculate_incoming_edges(triangulation: &Triangulation, num_of_sites: usize) -> Vec<usize> {
+    // create map between site and its left-most incoming half-edge
+    // this is especially important for the sites along the convex hull boundary when iterating over its neighoring sites
+    let mut site_to_incoming_leftmost_halfedge = vec![EMPTY; num_of_sites];
+
+    for e in 0..triangulation.triangles.len() {
+        let s = site_of_incoming(&triangulation, e);
+        if site_to_incoming_leftmost_halfedge[s] == EMPTY || triangulation.halfedges[e] == EMPTY {
+            site_to_incoming_leftmost_halfedge[s] = e;
+        }
+    }
+
+    // if input sites has lot of coincident points (very very close), the underlying triangulation will be problematic and those points may be ignored in the triangulation
+    // thus they won't be reacheable and this will lead to problems down the line as we build the voronoi graph
+    debug_assert!(!site_to_incoming_leftmost_halfedge.iter().any(|e| *e == EMPTY), "One or more sites is not reacheable in the triangulation mesh. This usually indicate coincident points.");
+
+    site_to_incoming_leftmost_halfedge
+}
+
 // #[cfg(test)]
 // mod test {
 //     use super::*;
 
-//     fn new_builder(vertices: Vec<Point>) -> CellBuilder {
-//         CellBuilder::new(vertices, BoundingBox::new_centered_square(4.0), ClipBehavior::Clip)
-//     }
+//     // fn new_builder(vertices: Vec<Point>) -> CellBuilder {
+//     //     CellBuilder::new(vertices, BoundingBox::new_centered_square(4.0), ClipBehavior::Clip)
+//     // }
 
 //     fn assert_same_elements(actual: &Vec<usize>, expected: &Vec<usize>, message: &str) {
 //         assert_eq!(actual.len(), expected.len(), "Vectors differ in length. Actual: {:?}. Expected: {:?}. {}", actual, expected, message);
 //         assert_eq!(0, actual.iter().copied().zip(expected.iter().copied()).filter(|(a,b)| a != b).count(), "Vectors have differing elements. Actual: {:?}. Expected: {:?}. {}", actual, expected, message);
-//     }
-
-//     fn assert_cell_vertex_without_bounds(builder: &CellBuilder, cell: &Vec<usize>, message: &str, expected_vertices: Vec<Point>) {
-//         let cell_vertices = cell.iter().map(|c| builder.vertices[*c].clone()).collect::<Vec<Point>>();
-//         assert_eq!(expected_vertices.len() , cell.len(), "Cell vertex count is incorrect. Expected {:#?}, found {:#?}. {}", expected_vertices, cell_vertices, message);
-
-//         cell_vertices.iter().enumerate().zip(expected_vertices.iter()).for_each(|((index, actual), expected)| {
-//             assert_eq!(expected, actual, "Invalid vertex for position {}. Expected cell vertices {:#?}, found {:#?} {}", index, expected_vertices, cell_vertices, message);
-//         });
-//     }
-
-//     fn assert_cell_vertex(builder: &CellBuilder, cell: &Vec<usize>, message: &str, expected_vertices: Vec<Point>) {
-//         assert_cell_vertex_without_bounds(builder, cell, message, expected_vertices);
-//         assert_cell_consistency(cell, builder, message);
-//     }
-
-//     /// Check that the cell is ordered counter-clockwise and inside the bounding box.
-//     fn assert_cell_consistency(cell: &Vec<usize>, builder: &CellBuilder, message: &str) {
-//         let points: Vec<Point> = cell.iter().map(|c| builder.vertices[*c].clone()).collect();
-
-//         // are all points within the bounding box?
-//         let points_outside: Vec<(usize, &Point)> = points.iter().enumerate().filter(|(_, p)| {
-//             !builder.bounding_box.is_inside(p)
-//         }).collect();
-//         assert_eq!(0, points_outside.len(), "These points are outside bounding box: {:?}. {}", points_outside, message);
-
-//         // is counter-clockwise? https://stackoverflow.com/questions/1165647/how-to-determine-if-a-list-of-polygon-points-are-in-clockwise-order
-//         let area = points.iter().zip(points.iter().cycle().skip(1)).fold(0.0, |acc, (a, b)| {
-//                 acc + ((b.x - a.x) * (b.y + a.y))
-//         });
-//         assert_eq!(true, area < 0.0, "Area of the polygon must be less than 0 for it to be counter-clockwise ordered. Area: {}. {}", area, message);
 //     }
 
 //     #[test]
