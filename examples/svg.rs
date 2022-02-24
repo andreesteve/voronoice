@@ -14,6 +14,7 @@ const VORONOI_EDGE_COLOR: &str = "blue";
 const TRIANGULATION_HULL_COLOR: &str = "green";
 const TRIANGULATION_LINE_COLOR: &str = "grey";
 const RENDER_LABELS: bool = true;
+const JITTER_RANGE_VALUE: f64 = 15.;
 
 #[derive(clap::Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -57,6 +58,10 @@ struct Args {
     /// Draw circumcenter circles
     #[clap(long)]
     circumcenter: bool,
+
+    // /// Zoom (scales) rendering
+    // #[clap(short, long, default_value_t = 1.0)]
+    // zoom: f64,
 }
 
 fn main() -> std::io::Result<()> {
@@ -205,19 +210,24 @@ fn render_triangles(voronoi: &Voronoi) -> String {
 
 fn render_point(points: &[Point], color: &str, jitter: bool) -> String {
     let mut rng = rand::thread_rng();
+    let jitter_range = rand::distributions::Uniform::new(-JITTER_RANGE_VALUE, JITTER_RANGE_VALUE);
 
     points
         .iter()
         .enumerate()
         .fold(String::new(), |acc, (i, p)| {
+            let (x, y) = if jitter {
+                (p.x + rng.sample(jitter_range), p.y + rng.sample(jitter_range))
+            } else {
+                 (p.x, p.y)
+            };
+
             acc + &format!(
                 r#"<circle id="pt_{pi}" cx="{x}" cy="{y}" r="{size}" fill="{color}"/>"#,
                 pi = i,
-                x = p.x + if jitter { rng.sample(rand::distributions::Uniform::new(-10., 10.)) } else { 0. },
-                y = p.y + if jitter { rng.sample(rand::distributions::Uniform::new(-10., 10.)) } else { 0. },
                 size = POINT_SIZE,
                 color = color
-            ) + &if RENDER_LABELS { format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{text}</text>"#, x = p.x, y = p.y, text = i) } else { "".to_string() }
+            ) + &if RENDER_LABELS { format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{text}</text>"#, text = i) } else { "".to_string() }
         })
 }
 
