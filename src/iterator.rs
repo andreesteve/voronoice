@@ -4,7 +4,7 @@ use crate::{Voronoi, utils::dist2};
 use super::{EMPTY};
 
 /// Iterator that walks through all the edges connected to a provided starting point.
-/// The iteration happens in a counterclock-wise manner.
+/// The iteration happens in a clock-wise manner.
 ///
 /// Note: this really only returns edges for triangles around the site. On the convex hull, the rightmost edge will not be returned because there is no incoming rightmost edge.
 #[derive(Clone)]

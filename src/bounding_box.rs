@@ -18,6 +18,8 @@ pub enum BoundingBoxLeftRightEdge {
 }
 
 /// Defines a rectangular bounding box.
+///
+/// The Y axis convention is downwards.
 #[derive(Debug, Clone)]
 pub struct BoundingBox {
     /// The center point of a rectangle.
@@ -25,6 +27,9 @@ pub struct BoundingBox {
 
     /// The top right point of a rectangle.
     top_right: Point,
+
+    /// The bottom left point of a rectangle.
+    bottom_left: Point,
 }
 
 impl Default for BoundingBox {
@@ -38,14 +43,15 @@ impl BoundingBox {
     ///
     /// # Arguments
     ///
-    /// * `origin` - The position of the center of the bounding box
+    /// * `center` - The position of the center of the bounding box
     /// * `width` - The bounding box's width
     /// * `height` - The bounding box's height
     ///
-    pub fn new(origin: Point, width: f64, height: f64) -> Self {
+    pub fn new(center: Point, width: f64, height: f64) -> Self {
         Self {
-            top_right: Point { x: origin.x + width / 2.0, y: origin.y + height / 2.0 },
-            center: origin,
+            top_right: Point { x: center.x + width / 2.0, y: center.y - height / 2.0 },
+            bottom_left: Point { x: center.x - width / 2.0, y: center.y + height / 2.0 },
+            center,
         }
     }
 
@@ -71,25 +77,53 @@ impl BoundingBox {
         &self.top_right
     }
 
+    /// Gets the position of the bottom left corner of the bounding box.
+    #[inline]
+    pub fn bottom_left(&self) -> &Point {
+        &self.bottom_left
+    }
+
     /// Gets the width of the bounding box.
     #[inline]
     pub fn width(&self) -> f64 {
-        2.0 * (self.top_right.x - self.center.x)
+        self.top_right.x - self.bottom_left.x
     }
 
     /// Gets the height of the bounding box.
     #[inline]
     pub fn height(&self) -> f64 {
-        2.0 * (self.top_right.y - self.center.y)
+        self.bottom_left.y - self.top_right.y
+    }
+
+    /// Gets the Y coordinate of the top of the bounding box.
+    #[inline]
+    pub fn top(&self) -> f64 {
+        self.top_right.y
+    }
+
+    /// Gets the Y coordinate of the bottom of the bounding box.
+    #[inline]
+    pub fn bottom(&self) -> f64 {
+        self.bottom_left.y
+    }
+
+    /// Gets the X coordinate of the left of the bounding box.
+    #[inline]
+    pub fn left(&self) -> f64 {
+        self.bottom_left.x
+    }
+
+    /// Gets the X coordinate of the right of the bounding box.
+    #[inline]
+    pub fn right(&self) -> f64 {
+        self.top_right.x
     }
 
     /// Returns whether a given point is inside (or on the edges) of the bounding box.
     #[inline]
     pub fn is_inside(&self, point: &Point) -> bool {
-        // left.x <= point.x <= right.x
-        let horizonal_ok = (self.top_right.x - self.width() <= point.x ) && (point.x <= self.top_right.x);
-        // bottom.y <= point.y <= top.y
-        let vertical_ok = (self.top_right.y - self.height() <= point.y) && (point.y <= self.top_right.y);
+        let horizonal_ok = point.x >= self.left() && point.x <= self.right();
+        let vertical_ok = point.y >= self.top() && point.y <= self.bottom();
 
         horizonal_ok && vertical_ok
     }
@@ -97,12 +131,7 @@ impl BoundingBox {
     // /// Same as inside, but return false if point is on the box edge.
     #[inline]
     pub fn is_exclusively_inside(&self, point: &Point) -> bool {
-        // left.x < point.x < right.x
-        let horizonal_ok = (self.top_right.x - self.width() < point.x ) && (point.x < self.top_right.x);
-        // bottom.y < point.y < top.y
-        let vertical_ok = (self.top_right.y - self.height() < point.y) && (point.y < self.top_right.y);
-
-        horizonal_ok && vertical_ok
+        self.is_inside(point) && self.which_edge(point) == (BoundingBoxTopBottomEdge::None, BoundingBoxLeftRightEdge::None)
     }
 
     /// Returns which edge, if any, the given `point` is located.
@@ -111,19 +140,19 @@ impl BoundingBox {
         (
             // The cost of this macro is probably justified in this case, since equality (==) is necessary
             // Didn't check the performance impact, though.
-            if abs_diff_eq(point.y, self.top_right.y, EQ_EPSILON) {
+            if abs_diff_eq(point.y, self.top(), EQ_EPSILON) {
                 // top
                 BoundingBoxTopBottomEdge::Top
-            } else if abs_diff_eq(point.y, self.top_right.y - self.height(), EQ_EPSILON) {
+            } else if abs_diff_eq(point.y, self.bottom(), EQ_EPSILON) {
                 BoundingBoxTopBottomEdge::Bottom
             } else {
                 BoundingBoxTopBottomEdge::None
             },
 
-            if abs_diff_eq(point.x, self.top_right.x, EQ_EPSILON) {
+            if abs_diff_eq(point.x, self.right(), EQ_EPSILON) {
                 // right
                 BoundingBoxLeftRightEdge::Right
-            } else if abs_diff_eq(point.x, self.top_right.x - self.width(), EQ_EPSILON) {
+            } else if abs_diff_eq(point.x, self.left(), EQ_EPSILON) {
                 // left
                 BoundingBoxLeftRightEdge::Left
             } else {
@@ -144,25 +173,20 @@ impl BoundingBox {
         let mut h = None;
         let mut i = None;
 
-        let boundary_right = self.top_right.x;
-        let boundary_left = self.top_right.x - self.width();
-        let boundary_top = self.top_right.y;
-        let boundary_bottom = self.top_right.y - self.height();
-
         // intersection left, right edges
         if c_x.abs() > 4. * std::f64::EPSILON {
             // y = c*x + d
-            let right_y = (boundary_right * c) + d;
-            let left_y = (boundary_left * c) + d;
+            let right_y = (self.right() * c) + d;
+            let left_y = (self.left() * c) + d;
 
-            if right_y <= boundary_top
-            && right_y >= boundary_bottom {
-                f = Some(Point { x: boundary_right, y: right_y });
+            if right_y >= self.top()
+            && right_y <= self.bottom() {
+                f = Some(Point { x: self.right(), y: right_y });
             }
 
-            if left_y <= boundary_top
-            && left_y >= boundary_bottom {
-                g = Some(Point { x: boundary_left, y: left_y })
+            if left_y >= self.top()
+            && left_y <= self.bottom() {
+                g = Some(Point { x: self.left(), y: left_y })
             }
 
             if g.is_some() && f.is_some() {
@@ -175,12 +199,12 @@ impl BoundingBox {
         if c_y.abs() > 4. * std::f64::EPSILON {
             if c_x.abs() < 4. * std::f64::EPSILON {
                 // line is parallel to y
-                if a.x <= boundary_right
-                && a.x >= boundary_left {
+                if a.x <= self.right()
+                && a.x >= self.left() {
                     // and crosses box
                     return (
-                        Some(Point { x: a.x, y: boundary_top }),
-                        Some(Point { x: a.x, y: boundary_bottom })
+                        Some(Point { x: a.x, y: self.top() }),
+                        Some(Point { x: a.x, y: self.bottom() })
                     );
                 } else {
                     // does not cross box
@@ -189,17 +213,17 @@ impl BoundingBox {
             }
 
             // x = (y - d) / c
-            let top_x = (boundary_top - d) / c;
-            let bottom_x = (boundary_bottom - d) / c;
+            let top_x = (self.top() - d) / c;
+            let bottom_x = (self.bottom() - d) / c;
 
-            if top_x <= boundary_right
-            && top_x >= boundary_left {
-                h = Some(Point { x: top_x, y: boundary_top })
+            if top_x <= self.right()
+                && top_x >= self.left() {
+                h = Some(Point { x: top_x, y: self.top() })
             }
 
-            if bottom_x <= boundary_right
-            && bottom_x >= boundary_left {
-                i = Some(Point { x: bottom_x, y: boundary_bottom })
+            if bottom_x <= self.right()
+                && bottom_x >= self.left() {
+                i = Some(Point { x: bottom_x, y: self.bottom() })
             }
 
             if h.is_some() && i.is_some() {
@@ -316,8 +340,8 @@ mod tests {
 
         // line parallel to x, crossing box
         let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: 0.0 }, &Point { x: 0.0, y: 1.0 }); // x = 0
-        assert_eq!(Some(Point { x: 0.0, y: 1.0 }), a, "Expected intersection with top edge");
-        assert_eq!(Some(Point { x: 0.0, y: -1.0 }), b, "Expected intersection with bottom edge");
+        assert_eq!(Some(Point { x: 0.0, y: bbox.top() }), a, "Expected intersection with top edge");
+        assert_eq!(Some(Point { x: 0.0, y: bbox.bottom() }), b, "Expected intersection with bottom edge");
 
         // line parallel to y, crossing box
         let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: 0.0 }, &Point { x: 1.0, y: 0.0 }); // y = 0
@@ -325,34 +349,34 @@ mod tests {
         assert_eq!(Some(Point { x: -1.0, y: 0.0 }), b, "Expected intersection with left edge");
 
         // line congruent to top edge
-        let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: 1.0 }, &Point { x: 1.0, y: 1.0 }); // y = 1
-        assert_eq!(Some(Point { x: 1.0, y: 1.0 }), a, "Expected intersection with top right corner");
-        assert_eq!(Some(Point { x: -1.0, y: 1.0 }), b, "Expected intersection with top left corner");
+        let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: bbox.top() }, &Point { x: 1.0, y: bbox.top() }); // y = top
+        assert_eq!(Some(Point { x: bbox.right(), y: bbox.top() }), a, "Expected intersection with top right corner");
+        assert_eq!(Some(Point { x: bbox.left(), y: bbox.top() }), b, "Expected intersection with top left corner");
 
         // line congruent to bottom edge
-        let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: -1.0 }, &Point { x: 1.0, y: -1.0 }); // y = -1
-        assert_eq!(Some(Point { x: 1.0, y: -1.0 }), a, "Expected intersection with bottom right corner");
-        assert_eq!(Some(Point { x: -1.0, y: -1.0 }), b, "Expected intersection with bottom left corner");
+        let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: bbox.bottom() }, &Point { x: 1.0, y: bbox.bottom() }); // y = bottom
+        assert_eq!(Some(Point { x: bbox.right(), y: bbox.bottom() }), a, "Expected intersection with bottom right corner");
+        assert_eq!(Some(Point { x: bbox.left(), y: bbox.bottom() }), b, "Expected intersection with bottom left corner");
 
         // line congruent to right edge
-        let (a, b) = bbox.intersect_line(&Point { x: 1.0, y: 0.0 }, &Point { x: 1.0, y: 1.0 }); // x = 1
-        assert_eq!(Some(Point { x: 1.0, y: 1.0 }), a, "Expected intersection with top right corner");
-        assert_eq!(Some(Point { x: 1.0, y: -1.0 }), b, "Expected intersection with bottom right corner");
+        let (a, b) = bbox.intersect_line(&Point { x: bbox.right(), y: 0.0 }, &Point { x: bbox.right(), y: 1.0 }); // x = right
+        assert_eq!(Some(Point { x: bbox.right(), y: bbox.top() }), a, "Expected intersection with top right corner");
+        assert_eq!(Some(Point { x: bbox.right(), y: bbox.bottom() }), b, "Expected intersection with bottom right corner");
 
         // line congruent to left edge
-        let (a, b) = bbox.intersect_line(&Point { x: -1.0, y: 0.0 }, &Point { x: -1.0, y: 1.0 }); // x = -1
-        assert_eq!(Some(Point { x: -1.0, y: 1.0 }), a, "Expected intersection with top left corner");
-        assert_eq!(Some(Point { x: -1.0, y: -1.0 }), b, "Expected intersection with bottom left corner");
-
-        // 45 degree line from box origin
-        let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: 0.0 }, &Point { x: 1.0, y: 1.0 });
-        assert_eq!(Some(Point { x: 1.0, y: 1.0 }), a, "Expected intersection with top right corner");
-        assert_eq!(Some(Point { x: -1.0, y: -1.0 }), b, "Expected intersection with left bottom corner");
+        let (a, b) = bbox.intersect_line(&Point { x: bbox.left(), y: 0.0 }, &Point { x: bbox.left(), y: 1.0 }); // x = left
+        assert_eq!(Some(Point { x: bbox.left(), y: bbox.top() }), a, "Expected intersection with top left corner");
+        assert_eq!(Some(Point { x: bbox.left(), y: bbox.bottom() }), b, "Expected intersection with bottom left corner");
 
         // -45 degree line from box origin
-        let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: 0.0 }, &Point { x: -1.0, y: -1.0 });
-        assert_eq!(Some(Point { x: 1.0, y: 1.0 }), a, "Expected intersection with top right corner");
-        assert_eq!(Some(Point { x: -1.0, y: -1.0 }), b, "Expected intersection with left bottom corner");
+        let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: 0.0 }, &Point { x: bbox.right(), y: bbox.top() });
+        assert_eq!(Some(Point { x: bbox.right(), y: bbox.top() }), a, "Expected intersection with top right corner");
+        assert_eq!(Some(Point { x: bbox.left(), y: bbox.bottom() }), b, "Expected intersection with left bottom corner");
+
+        // 45 degree line from box origin
+        let (a, b) = bbox.intersect_line(&Point { x: 0.0, y: 0.0 }, &Point { x: bbox.left(), y: bbox.bottom() });
+        assert_eq!(Some(Point { x: bbox.right(), y: bbox.top() }), a, "Expected intersection with top right corner");
+        assert_eq!(Some(Point { x: bbox.left(), y: bbox.bottom() }), b, "Expected intersection with left bottom corner");
 
         // -45 degree line translated by (0.5,0.5) - top right ear
         let (a, b) = bbox.intersect_line(&Point { x: 0.5, y: 0.5 }, &Point { x: 0.4, y: 0.6 });

@@ -21,6 +21,19 @@ pub struct CellBuilderResult {
     pub vertices: Vec<Point>
 }
 
+trait PushAndReturnIndex<T> {
+    /// Pushes element into vector and returns its index.
+    fn pushi(&mut self, e: T) -> usize;
+}
+
+impl<T> PushAndReturnIndex<T> for Vec<T> {
+    fn pushi(&mut self, e: T) -> usize {
+        let index = self.len();
+        self.push(e);
+        index
+    }
+}
+
 impl<'t> CellBuilder<'t> {
     pub fn new(triangulation: &'t Triangulation, sites: &'t Vec<Point>, vertices: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Self {
         Self {
@@ -80,10 +93,6 @@ impl<'t> CellBuilder<'t> {
         // It is expected that points ARE on the box edge
         assert!(!(a_bt == BoundingBoxTopBottomEdge::None && a_lr == BoundingBoxLeftRightEdge::None), "Point a [{:?}] was not located on any of the box's edge", pa);
         assert!(!(b_bt == BoundingBoxTopBottomEdge::None && b_lr == BoundingBoxLeftRightEdge::None), "Point b [{:?}] was not located on any of the box's edge", pb);
-
-        // if (a_bt == BoundingBoxTopBottomEdge::None && a_lr == BoundingBoxLeftRightEdge::None) || (b_bt == BoundingBoxTopBottomEdge::None && b_lr == BoundingBoxLeftRightEdge::None) {
-        //     return (0, [0, 0, 0, 0]);
-        // }
 
         // short-circuit for case where a and b are on the same edge, and b is ahead of a, such case there is nothing to do
         if (match (a_bt, b_bt) {
@@ -169,29 +178,20 @@ impl<'t> CellBuilder<'t> {
         }
 
         (new_vertice_count, new_vertices)
-        //(0, new_vertices)
     }
 
     pub fn calculate_corners(&mut self) {
         // add all corners to the vertice list as they will be used for closing cells
-        let width = self.bounding_box.width();
-        let height = self.bounding_box.height();
-
         let top_right = self.bounding_box.top_right().clone();
-        let mut top_left = top_right.clone(); top_left.x -= width;
-        let mut bottom_left = top_left.clone(); bottom_left.y -= height;
-        let mut bottom_right = top_right.clone(); bottom_right.y -= height;
+        let top_left = Point { x: self.bounding_box.left(), y: self.bounding_box.top() };
+        let bottom_left = self.bounding_box.bottom_left().clone();
+        let bottom_right = Point { x: self.bounding_box.right(), y: self.bounding_box.bottom() };
 
-        self.vertices.push(top_right);
-        self.vertices.push(top_left);
-        self.vertices.push(bottom_left);
-        self.vertices.push(bottom_right);
-
-        let bottom_right_index = self.vertices.len() - 1;
-        self.bottom_right_corner_index = bottom_right_index;
-        self.bottom_left_corner_index = bottom_right_index - 1;
-        self.top_left_corner_index = bottom_right_index - 2;
-        self.top_right_corner_index = bottom_right_index - 3;
+        // counter-clockwise
+        self.top_left_corner_index = self.vertices.pushi(top_left);
+        self.bottom_left_corner_index = self.vertices.pushi(bottom_left);
+        self.bottom_right_corner_index = self.vertices.pushi(bottom_right);
+        self.top_right_corner_index = self.vertices.pushi(top_right);
     }
 
     /// Clip a voronoi edge on the bounding box's edge, if the edge crosses the bounding box.
@@ -215,32 +215,25 @@ impl<'t> CellBuilder<'t> {
         let circumcenter = triangle_of_edge(hull_edge);
         let circumcenter_pos = &self.vertices[circumcenter];
 
-        if self.bounding_box.is_inside(circumcenter_pos) {
-            // hull_edge is the directed edge a -> b
-            let (a, b) = (self.triangulation.triangles[hull_edge], self.triangulation.triangles[next_halfedge(hull_edge)]);
+        let (a, b) = (self.triangulation.triangles[hull_edge], self.triangulation.triangles[next_halfedge(hull_edge)]);
 
-            let a_pos = &self.sites[a];
-            let b_pos = &self.sites[b];
+        let a_pos = &self.sites[a];
+        let b_pos = &self.sites[b];
 
-            // the projection direction is orthogonal to the hull's edge (a -> b)
-            // put it just beyong bounding box edge
-            let mut orthogonal = Point { x: a_pos.y - b_pos.y , y: b_pos.x - a_pos.x };
+        // the projection direction is orthogonal to the hull's edge (a -> b)
+        // put it just beyong bounding box edge
+        let mut orthogonal = Point { x: a_pos.y - b_pos.y , y: b_pos.x - a_pos.x };
 
-            // normalizing the orthogonal vector
-            let ortho_length = (orthogonal.x * orthogonal.x + orthogonal.y * orthogonal.y).sqrt();
-            orthogonal.x *= self.bounding_box.diagonal_square() / ortho_length;
-            orthogonal.y *= self.bounding_box.diagonal_square() / ortho_length;
+        // normalizing the orthogonal vector
+        let ortho_length = (orthogonal.x * orthogonal.x + orthogonal.y * orthogonal.y).sqrt();
+        orthogonal.x *= self.bounding_box.diagonal_square() / ortho_length;
+        orthogonal.y *= self.bounding_box.diagonal_square() / ortho_length;
 
-            let projected = Point { x: circumcenter_pos.x + orthogonal.x, y: circumcenter_pos.y + orthogonal.y };
-            self.vertices.push(projected);
+        let projected = Point { x: circumcenter_pos.x + orthogonal.x, y: circumcenter_pos.y + orthogonal.y };
+        let v = self.vertices.pushi(projected);
 
-            #[cfg(debug_assertions)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) extended orthogonally to {a} -> {b} at {}", self.vertices.len() - 1);
-            Some(self.vertices.len() - 1)
-        } else {
-            // if circumcenter (vertex) is outside bounding box, it is already extended past box boundary
-            #[cfg(debug_assertions)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) not extended because vertex is already outside bounding box");
-            None
-        }
+        #[cfg(debug_assertions)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) extended orthogonally to {a} -> {b} at {}", v);
+        Some(v)
     }
 
     /// Given a ```cell``` and a voronoi edge prev -> c, checks for an intersection of the edge with the bounding box
@@ -254,27 +247,30 @@ impl<'t> CellBuilder<'t> {
         // intersection found, but does the intersection happen in the [prev -> c edge] or after it
         // i.e. check to see if first_clip is after c (pos) in the projection ray
         if first_clip.is_some() && bounding_box::order_points_on_ray(prev_pos, &prev_to_pos, Some(pos.clone()), first_clip.clone()).0 == first_clip {
-            self.vertices.push(first_clip.unwrap());
-            let f = self.vertices.len() - 1;
-            cell.push(f);
-
             if let Some(second_clip) = second_clip {
-                self.vertices.push(second_clip);
-                let s = self.vertices.len() - 1;
+                let first_clip = first_clip.unwrap();
+                let (first, second) = (first_clip, second_clip);
 
-                // when site is on the hull, there is no neighbor for this edge
-                // so wrap around bounding box corners
-                // TODO: double check this, maybe we need to check if this edge indeed has no neighbor
+                // edge clipped twice on the bounding box, need to wrap around as needed
+                // FIXME: degenerated8 site 2 cell includes site 1 due to colinear degeneration - this case should not wrap around
                 let (link_count, links) = self.get_link_vertices_around_box_edge(
-                    &self.vertices[f],
-                    &self.vertices[s]);
+                    &first,
+                    &second);
+
+                let f = self.vertices.pushi(first);
+                cell.push(f);
 
                 cell.extend_from_slice(&links[..link_count]);
+
+                let s = self.vertices.pushi(second);
                 cell.push(s);
 
-                #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box, but crossed at {f} and {s}.");
+                #[cfg(debug_assertions)] println!("  Edge {prev} {:?} -> {c} {:?}: outside the box, but crossed at {f} {:?} and {s} {:?}.", self.vertices[prev], self.vertices[c], self.vertices[f], self.vertices[s]);
             } else {
                 // else the edge intersected in one of the corners only
+                // FIXME what does this mean? do we need to wrap around?
+                let f = self.vertices.pushi(first_clip.unwrap());
+                cell.push(f);
                 #[cfg(debug_assertions)] println!("  Edge {prev} -> {c}: outside the box, but crossed at {f} only.");
             }
         } else {
@@ -304,6 +300,8 @@ impl<'t> CellBuilder<'t> {
 
         // fill in cells
         for edge in 0..triangulation.triangles.len() {
+        //for edge in [39] {
+        //for edge in [3] {
             let site = site_of_incoming(triangulation, edge);
             let cell = &mut cells[site];
 
@@ -318,6 +316,7 @@ impl<'t> CellBuilder<'t> {
                 #[cfg(debug_assertions)] println!();
                 #[cfg(debug_assertions)] println!("Site: {site}. {}. Leftmost incoming edge: {}", if is_site_on_hull { "HULL" } else { "" }, leftmost_incoming_edge);
 
+                // tmp_cell will have vertices oriented clockwise because of EdgesAroundSiteIterator iterator
                 tmp_cell.clear();
                 let iter = EdgesAroundSiteIterator::new(triangulation, leftmost_incoming_edge);
 
@@ -340,6 +339,14 @@ impl<'t> CellBuilder<'t> {
                     if let Some(extension) = self.extend_voronoi_vertex(last_edge) {
                         tmp_cell.push(extension);
                     }
+
+                    // FIXME degenerated4 and 8 - not single triangle requirement, when is this wrong?
+                    // if hull site has single triangle / circumcenter, then we cannot rely on the orientation
+                    // and need to check for ourselves
+                    let site_pos = &self.sites[site];
+                    if robust::orient2d((&self.vertices[*tmp_cell.first().unwrap()]).into(), (&self.vertices[*tmp_cell.last().unwrap()]).into(), site_pos.into()) <= 0. {
+                        tmp_cell.reverse();
+                    };
                 } else {
                     tmp_cell.extend(iter.map(utils::triangle_of_edge));
                 }
@@ -361,7 +368,8 @@ impl<'t> CellBuilder<'t> {
                 #[cfg(debug_assertions)] println!("  Start: Temp[{first_index}] = {first}.");
 
                 // iterate over each voronoi edge starting on edge first -> first + 1
-                for &c in tmp_cell.iter().cycle().skip(first_index + 1).take(tmp_cell.len()) {
+                // iterate on reverse to get counter-clockwise orientation
+                for &c in tmp_cell.iter().rev().cycle().skip(tmp_cell.len() - first_index).take(tmp_cell.len()) {
                     let inside = is_inside(c);
 
                     match (prev_inside, inside) {
@@ -389,9 +397,9 @@ impl<'t> CellBuilder<'t> {
 
                         // leaving bounding box - edge crosses bounding box edge from the inside
                         (true, false) => {
-                            cell.push(prev);
-                            cell.push(self.clip_voronoi_edge(prev, c).expect("Edge crosses box, intersection must exist."));
-                            #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: Leaving box. Clipped at {}", cell.last().unwrap());
+                            cell.pushi(prev);
+                            cell.pushi(self.clip_voronoi_edge(prev, c).expect("Edge crosses box, intersection must exist."));
+                            #[cfg(debug_assertions)] println!("  [{site}/{edge}] Edge {prev} -> {c}: Leaving box. Added {prev} and clipped at {}", cell.last().unwrap());
                         },
 
                         // edge inside box

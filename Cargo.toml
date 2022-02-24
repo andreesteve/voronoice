@@ -12,6 +12,7 @@ readme = "README.md"
 
 [dependencies]
 delaunator = { version = "^1" }
+robust = { version = "^0.2" }
 
 [dev-dependencies]
 criterion = "0.3.5"
