@@ -1,7 +1,6 @@
-use crate::utils::abs_diff_eq;
+use crate::utils::{abs_diff_eq, EQ_EPSILON};
 
 use super::Point;
-const EQ_EPSILON: f64 = 4. * std::f64::EPSILON;
 
 /// Defines a rectangular bounding box.
 ///

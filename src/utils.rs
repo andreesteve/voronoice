@@ -1,5 +1,7 @@
 use delaunator::{Point, Triangulation, next_halfedge};
 
+pub(crate) const EQ_EPSILON: f64 = 4. * std::f64::EPSILON;
+
 /// Gets the index of the triangle (starting half-edge) this half-edge belongs to.
 #[inline]
 pub fn triangle_of_edge(edge: usize) -> usize {
@@ -11,6 +13,32 @@ pub fn triangle_of_edge(edge: usize) -> usize {
 #[inline]
 pub fn site_of_incoming(triangulation: &Triangulation, e: usize) -> usize {
     triangulation.triangles[next_halfedge(e)]
+}
+
+/// Gets the delaunay edge associated with a voronoi edge where ```a``` and ```b``` are the index of the triangle whose circumcenter representes the vertices of the voronoi edge.
+///
+/// The returned value is a delaunay edge or EMPTY if the voronoi edge does not exist (or was clipped and vertices do not represent circumcenters).
+#[allow(dead_code)]
+pub fn delaunay_edge_from_voronoi_edge(triangulation: &Triangulation, a: usize, b: usize) -> usize {
+    // get delaunay edges of triangles associated with circumcenters a and b
+    let mut ta = a * 3;
+    let mut tb = b * 3;
+
+    if ta < triangulation.triangles.len() && tb < triangulation.triangles.len() {
+        // find the common delaunay edge
+        for _ in 0..3 {
+            for _ in 0..3 {
+                if ta == triangulation.halfedges[tb] {
+                    return ta
+                } else {
+                    tb = delaunator::next_halfedge(tb);
+                }
+            }
+            ta = delaunator::next_halfedge(ta);
+        }
+    }
+
+    delaunator::EMPTY
 }
 
 pub fn calculate_approximated_cetroid<'a>(points: impl Iterator<Item = &'a Point>) -> Point {

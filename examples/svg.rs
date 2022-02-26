@@ -13,7 +13,7 @@ const LINE_WIDTH: usize = 1;
 const VORONOI_EDGE_COLOR: &str = "blue";
 const TRIANGULATION_HULL_COLOR: &str = "green";
 const TRIANGULATION_LINE_COLOR: &str = "grey";
-const JITTER_RANGE_VALUE: f64 = 15.;
+const JITTER_RANGE_VALUE: f64 = 5.;
 
 #[derive(clap::Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -188,8 +188,12 @@ fn render_triangles(transform: &Transform, voronoi: &Voronoi, labels: bool) -> S
         if e > triangulation.halfedges[e] || triangulation.halfedges[e] == EMPTY {
             let start = transform.transform(&points[triangulation.triangles[e]]);
             let end = transform.transform(&points[triangulation.triangles[next_halfedge(e)]]);
-            let color = if triangulation.halfedges[e] == EMPTY { TRIANGULATION_HULL_COLOR } else { TRIANGULATION_LINE_COLOR };
             let mid = Point { x: (start.x + end.x) / 2.0, y: (start.y + end.y) / 2.0 };
+            let (color, label) = if triangulation.halfedges[e] == EMPTY {
+                (TRIANGULATION_HULL_COLOR, format!("{e}"))
+            } else {
+                (TRIANGULATION_LINE_COLOR, format!("{e} ({})", triangulation.halfedges[e]))
+            };
 
             let acc = acc + &format!(r#"<line id="dedge_{id}" stroke-dasharray="10,10" x1="{x0}" y1="{y0}" x2="{x1}" y2="{y1}" style="stroke:{color};stroke-width:{width}" />"#,
                 id = e,
@@ -201,7 +205,7 @@ fn render_triangles(transform: &Transform, voronoi: &Voronoi, labels: bool) -> S
                 color = color);
 
             if labels {
-                acc + &format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{text}</text>"#, x = mid.x, y = mid.y, text = e)
+                acc + &format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{label}</text>"#, x = mid.x, y = mid.y)
             } else {
                 acc
             }

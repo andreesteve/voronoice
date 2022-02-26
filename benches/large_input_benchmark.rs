@@ -4,8 +4,10 @@ mod bench_base;
 use bench_base::*;
 
 fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("100,000 random sites", |b| create_benchmark_fn(b, 100_000));
-    c.bench_function("1,000,000 random sites", |b| create_benchmark_fn(b, 1_000_000));
+    let mut large = c.benchmark_group("large");
+    large.bench_function("100,000 random sites", |b| create_benchmark_fn(b, 100_000));
+    large.bench_function("1,000,000 random sites", |b| create_benchmark_fn(b, 1_000_000));
+    large.finish();
 
     // FIXME: this takes quite a bit of memory, need to play with large input bench configuration
     let mut very_large_group = c.benchmark_group("very_large");
