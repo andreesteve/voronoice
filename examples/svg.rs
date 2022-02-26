@@ -268,21 +268,28 @@ fn render_voronoi_edges(transform: &Transform, voronoi: &Voronoi, args: &Args) -
             continue;
         }
 
+        let render = |(start, end)| {
+            let start = transform.transform(start);
+            let end = transform.transform(end);
+
+            buffer += &format!(r#"<line x1="{x0}" y1="{y0}" x2="{x1}" y2="{y1}" style="stroke:{color};stroke-width:{width}" />"#,
+                x0 = start.x,
+                y0 = start.y,
+                x1 = end.x,
+                y1 = end.y,
+                width = LINE_WIDTH,
+                color = VORONOI_EDGE_COLOR);
+        };
+
         // TODO: cycle() needs clone, instead of returning Impl Iterator, return a proper iterator struct
         // using a ugly chain below to get (current, next) vertices of a cell
         if let Some(first) = cell.iter_vertices().next() {
-            cell.iter_vertices().zip(cell.iter_vertices().skip(1).chain(std::iter::once(first))).for_each(|(start, end)|{
-                let start = transform.transform(start);
-                let end = transform.transform(end);
-
-                buffer += &format!(r#"<line x1="{x0}" y1="{y0}" x2="{x1}" y2="{y1}" style="stroke:{color};stroke-width:{width}" />"#,
-                    x0 = start.x,
-                    y0 = start.y,
-                    x1 = end.x,
-                    y1 = end.y,
-                    width = LINE_WIDTH,
-                    color = VORONOI_EDGE_COLOR);
-            });
+            if args.clip_behavior != ClipBehavior::Clip && cell.is_on_hull() {
+                // hull cells are not closed when clipping is disabled so we should not render last edge
+                cell.iter_vertices().zip(cell.iter_vertices().skip(1)).for_each(render);
+            } else {
+                cell.iter_vertices().zip(cell.iter_vertices().skip(1).chain(std::iter::once(first))).for_each(render);
+            };
         }
     }
 

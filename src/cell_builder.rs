@@ -1,7 +1,8 @@
-use core::panic;
 use delaunator::{EMPTY, next_halfedge, Triangulation};
 use crate::{utils::{triangle_of_edge}, BoundingBox, bounding_box};
 use super::{ClipBehavior, Point, iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
+
+const VORONOI_INFINITY: f64 = 1e+10_f64;
 
 #[derive(Debug)]
 pub struct CellBuilder<'t> {
@@ -14,6 +15,7 @@ pub struct CellBuilder<'t> {
     bounding_box: BoundingBox,
     clip_behavior: ClipBehavior,
     first_corner_index: usize,
+    number_of_circumcenters: usize,
 }
 
 pub struct CellBuilderResult {
@@ -42,7 +44,12 @@ impl<'t> CellBuilder<'t> {
     pub fn new(triangulation: &'t Triangulation, sites: &'t Vec<Point>, vertices: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Self {
         let site_to_incoming_leftmost_halfedge = calculate_incoming_edges(triangulation, sites.len());
         let is_vertex_inside_bounding_box: Vec<bool> = vertices.iter().map(|c| bounding_box.is_inside(c)).collect();
-        let corner_ownership = calculate_corner_ownership(&bounding_box.corners(), &triangulation, sites, &site_to_incoming_leftmost_halfedge);
+
+        let corner_ownership = if clip_behavior == ClipBehavior::Clip {
+            calculate_corner_ownership(&bounding_box.corners(), &triangulation, sites, &site_to_incoming_leftmost_halfedge)
+        } else {
+            Vec::with_capacity(0)
+        };
 
         Self {
             triangulation,
@@ -51,6 +58,7 @@ impl<'t> CellBuilder<'t> {
             is_vertex_inside_bounding_box,
             corner_ownership,
             first_corner_index: 0,
+            number_of_circumcenters: vertices.len(),
             vertices,
             bounding_box,
             clip_behavior
@@ -59,37 +67,17 @@ impl<'t> CellBuilder<'t> {
 
     pub fn build(mut self) -> CellBuilderResult {
         // adds the corners of the bounding box as potential vertices for the voronoi
-        let cells = if self.clip_behavior == ClipBehavior::Clip {
+        if self.clip_behavior == ClipBehavior::Clip {
             self.calculate_corners();
-            self.build_cells()
-        } else {
-            self.build_cells_no_clip()
-        };
+        }
+
+        let cells = self.build_cells();
 
         CellBuilderResult {
             vertices: self.vertices,
             site_to_incoming_leftmost_halfedge: self.site_to_incoming_leftmost_halfedge,
             cells
         }
-    }
-
-    fn build_cells_no_clip(&mut self) -> Vec<Vec<usize>> {
-        let num_of_sites = self.sites.len();
-        let mut cells: Vec<Vec<usize>> = vec![Vec::new(); num_of_sites];
-
-        // fill in cells
-        for edge in 0..self.triangulation.triangles.len() {
-            let site = site_of_incoming(self.triangulation, edge);
-            let cell = &mut cells[site];
-
-            // if cell is empty, it hasn't been processed yet
-            if cell.len() == 0 {
-                let leftmost_incoming_edge = self.site_to_incoming_leftmost_halfedge[site];
-                cell.extend(EdgesAroundSiteIterator::new(self.triangulation, leftmost_incoming_edge).map(utils::triangle_of_edge));
-            }
-        }
-
-        cells
     }
 
     pub fn calculate_corners(&mut self) {
@@ -111,26 +99,28 @@ impl<'t> CellBuilder<'t> {
         let mut cells: Vec<Vec<usize>> = vec![Vec::new(); num_of_sites];
         let mut tmp_cell = Vec::new();
 
-        // For each hull edge a->b, extend its associated circumcenter vertex beyond the bounding box
-        // Add this extended vertex to its cell, and the hull previous cell that shares the same extended vertex
-        for (&a, &b) in triangulation.hull.iter().zip(triangulation.hull.iter().cycle().skip(1)) {
-            let hull_edge = self.site_to_incoming_leftmost_halfedge[b];
-            let extension = self.extend_voronoi_vertex(hull_edge);
+        if self.clip_behavior == ClipBehavior::Clip {
+            // For each hull edge a->b, extend its associated circumcenter vertex beyond the bounding box
+            // Add this extended vertex to its cell, and the hull previous cell that shares the same extended vertex
+            for (&a, &b) in triangulation.hull.iter().zip(triangulation.hull.iter().cycle().skip(1)) {
+                let hull_edge = self.site_to_incoming_leftmost_halfedge[b];
+                let extension = self.extend_voronoi_vertex(hull_edge);
 
-            // add extension as first vertex in incoming site
-            cells[b].push(extension);
-            cells[b].extend(EdgesAroundSiteIterator::new(triangulation, hull_edge).map(utils::triangle_of_edge));
+                // add extension as first vertex in incoming site
+                cells[b].push(extension);
+                cells[b].extend(EdgesAroundSiteIterator::new(triangulation, hull_edge).map(utils::triangle_of_edge));
 
-            // add extension as last vertex in outgoing site
-            cells[a].push(extension);
-        }
+                // add extension as last vertex in outgoing site
+                cells[a].push(extension);
+            }
 
-        // Clip hull sites
-        for &hull_site in &triangulation.hull {
-            let hull_cell = &mut cells[hull_site];
-            tmp_cell.clear();
-            std::mem::swap(hull_cell, &mut tmp_cell);
-            self.clip_cell(&tmp_cell, hull_cell, hull_site);
+            // Clip hull sites
+            for &hull_site in &triangulation.hull {
+                let hull_cell = &mut cells[hull_site];
+                tmp_cell.clear();
+                std::mem::swap(hull_cell, &mut tmp_cell);
+                self.clip_cell(&tmp_cell, hull_cell, hull_site);
+            }
         }
 
         // Build and clip remaining cells
@@ -144,9 +134,15 @@ impl<'t> CellBuilder<'t> {
                 #[cfg(debug_assertions)] println!();
                 #[cfg(debug_assertions)] println!("Site: {site}.");
 
-                tmp_cell.clear();
-                tmp_cell.extend(EdgesAroundSiteIterator::new(triangulation, edge).map(utils::triangle_of_edge));
-                self.clip_cell(&tmp_cell, cell, site);
+                let circumcenter_iter = EdgesAroundSiteIterator::new(triangulation, edge).map(utils::triangle_of_edge);
+                if self.clip_behavior == ClipBehavior::Clip {
+                    tmp_cell.clear();
+                    tmp_cell.extend(circumcenter_iter);
+                    self.clip_cell(&tmp_cell, cell, site);
+                } else {
+                    cell.extend(circumcenter_iter);
+                    cell.reverse();
+                }
 
                 #[cfg(debug_assertions)] println!("  [{site}/{edge}] Cell: {:?}", cell);
             }
@@ -331,8 +327,7 @@ impl<'t> CellBuilder<'t> {
         orthogonal.y *= 1.0 / ortho_length;
 
         // project to "inifity"
-        let infinity = 1e+10_f64;
-        let projected = Point { x: circumcenter_pos.x + orthogonal.x * infinity, y: circumcenter_pos.y + orthogonal.y * infinity };
+        let projected = Point { x: circumcenter_pos.x + orthogonal.x * VORONOI_INFINITY, y: circumcenter_pos.y + orthogonal.y * VORONOI_INFINITY };
         let v = self.add_new_vertex(projected);
 
         #[cfg(debug_assertions)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) extended orthogonally to {a} -> {b} at {}", v);
@@ -349,7 +344,7 @@ impl<'t> CellBuilder<'t> {
     fn add_new_vertex(&mut self, vertex: Point) -> usize {
         // the cost of deduplicating vertices is about 5-8% for 1M sites
         // cache hits really help here, but a future improvement would be test to see if a quadtree makes it faster for large inputs
-        for (index, v) in self.vertices.iter().enumerate().skip(self.first_corner_index) {
+        for (index, v) in self.vertices.iter().enumerate().skip(self.number_of_circumcenters) {
             if utils::abs_diff_eq(v.x, vertex.x, utils::EQ_EPSILON)
                 && utils::abs_diff_eq(v.y, vertex.y, utils::EQ_EPSILON) {
                 return index;
