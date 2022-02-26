@@ -29,6 +29,8 @@ impl VoronoiBuilder {
     }
 
     /// Sets a vector of [Point]s representing the sites of each Voronoi cell that should be constructed.
+    ///
+    /// By convention, the Y-axis points downwards.
     pub fn set_sites(mut self, sites: Vec<Point>) -> Self {
         self.sites.replace(sites);
         self

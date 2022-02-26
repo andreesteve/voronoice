@@ -156,33 +156,6 @@ impl BoundingBox {
         }
     }
 
-    // /// Returns which edge, if any, the given `point` is located.
-    // #[inline]
-    // pub (crate) fn which_edge(&self, point: &Point) -> (BoundingBoxTopBottomEdge, BoundingBoxLeftRightEdge) {
-    //     (
-    //         // The cost of this macro is probably justified in this case, since equality (==) is necessary
-    //         // Didn't check the performance impact, though.
-    //         if abs_diff_eq(point.y, self.top(), EQ_EPSILON) {
-    //             // top
-    //             BoundingBoxTopBottomEdge::Top
-    //         } else if abs_diff_eq(point.y, self.bottom(), EQ_EPSILON) {
-    //             BoundingBoxTopBottomEdge::Bottom
-    //         } else {
-    //             BoundingBoxTopBottomEdge::None
-    //         },
-
-    //         if abs_diff_eq(point.x, self.right(), EQ_EPSILON) {
-    //             // right
-    //             BoundingBoxLeftRightEdge::Right
-    //         } else if abs_diff_eq(point.x, self.left(), EQ_EPSILON) {
-    //             // left
-    //             BoundingBoxLeftRightEdge::Left
-    //         } else {
-    //             BoundingBoxLeftRightEdge::None
-    //         }
-    //     )
-    // }
-
     /// Intersects a line represented by points 'a' and 'b' and returns the two intersecting points with the box, or None
     pub (crate) fn intersect_line(&self, a: &Point, b: &Point) -> (Option<Point>, Option<Point>) {
         let c_x = b.x - a.x;

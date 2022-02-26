@@ -282,8 +282,8 @@ mod tests {
         let builder = VoronoiBuilder::default();
         let bbox = BoundingBox::default();
 
-        let x_range = rand::distributions::Uniform::new(-bbox.width(), bbox.width());
-        let y_range = rand::distributions::Uniform::new(-bbox.height(), bbox.height());
+        let x_range = rand::distributions::Uniform::new(-bbox.width() / 2.0, bbox.width() / 2.0);
+        let y_range = rand::distributions::Uniform::new(-bbox.height() / 2.0, bbox.height() / 2.0);
         let sites = (0..size)
             .map(|_| Point { x: rng.sample(x_range), y: rng.sample(y_range) })
             .collect();
@@ -294,10 +294,69 @@ mod tests {
     }
 
     #[test]
-    fn random_site_generation_test() {
-        create_random_builder(100_000)
+    fn random_100_000_site_generation_test() {
+        let voronoi = create_random_builder(100_000)
             .build()
             .expect("Some voronoi expected.");
+
+        utils::test::validate_voronoi(&voronoi);
+    }
+
+    #[test]
+    fn random_15_site_generation_test() {
+        for _ in 0..1000 {
+            let voronoi = create_random_builder(15)
+                .build()
+                .expect("Some voronoi expected.");
+
+            utils::test::validate_voronoi(&voronoi);
+        }
+    }
+
+    #[test]
+    fn validate_examples() -> std::io::Result<()> {
+        let basepath = "examples/assets/";
+
+        for path in [
+            "degenerated1.json",
+            "degenerated2.json",
+            "degenerated3.json",
+            "degenerated4.json",
+            "degenerated5.json",
+            "degenerated6.json",
+            "degenerated7.json",
+            "degenerated8.json",
+            "degenerated9.json",
+            "degenerated10.json",
+            "clockwise1.json",
+        ] {
+            let file = std::fs::File::open(basepath.to_string() + path)?;
+            let sites: Vec<[f64;2]> = serde_json::from_reader(file)?;
+            let sites: Vec<Point> = sites.iter().map(|&[x, y]| Point { x, y }).collect();
+
+            let mut center = sites.iter().fold(Point { x: 0., y: 0. }, |acc, p| Point { x: acc.x + p.x, y: acc.y + p.y });
+            center.x /= sites.len() as f64;
+            center.y /= sites.len() as f64;
+
+            let farthest_distance = sites
+                .iter()
+                .map(|p| {
+                    let (x, y) = (center.x - p.x, center.y - p.y);
+                    x * x + y * y
+                })
+                .reduce(f64::max)
+                .unwrap()
+                .sqrt();
+
+            let voronoi = VoronoiBuilder::default()
+                .set_sites(sites)
+                .set_bounding_box(BoundingBox::new(center, farthest_distance * 2.0, farthest_distance * 2.0))
+                .build()
+                .expect("Some voronoi expected");
+            utils::test::validate_voronoi(&voronoi);
+        }
+
+        Ok(())
     }
 
     #[test]
