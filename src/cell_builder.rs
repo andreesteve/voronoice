@@ -100,76 +100,6 @@ impl<'t> CellBuilder<'t> {
         }
     }
 
-    fn extend_voronoi_vertex(&mut self, hull_edge: usize) -> Option<usize> {
-        let circumcenter = triangle_of_edge(hull_edge);
-        let circumcenter_pos = &self.vertices[circumcenter];
-
-        let (a, b) = (self.triangulation.triangles[hull_edge], self.triangulation.triangles[next_halfedge(hull_edge)]);
-
-        let a_pos = &self.sites[a];
-        let b_pos = &self.sites[b];
-
-        // the projection direction is orthogonal to the hull's edge (a -> b)
-        // put it just beyong bounding box edge
-        let mut orthogonal = Point { x: a_pos.y - b_pos.y , y: b_pos.x - a_pos.x };
-
-        // normalizing the orthogonal vector
-        let ortho_length = (orthogonal.x * orthogonal.x + orthogonal.y * orthogonal.y).sqrt();
-        orthogonal.x *= 1.0 / ortho_length;
-        orthogonal.y *= 1.0 / ortho_length;
-
-        // project to "inifity"
-        let infinity = 1e+10_f64;
-        let projected = Point { x: circumcenter_pos.x + orthogonal.x * infinity, y: circumcenter_pos.y + orthogonal.y * infinity };
-        let v = self.vertices.pushi(projected);
-
-        #[cfg(debug_assertions)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) extended orthogonally to {a} -> {b} at {}", v);
-        Some(v)
-    }
-
-
-    /// Clip a voronoi edge on the bounding box's edge, if the edge crosses the bounding box.
-    ///
-    /// The edge may cross the bounding box once (when ```a``` is inside the box) or twice (when ```a``` and ```b``` are outside the box).
-    /// Returns up to two indexes to the new vertex where the clip has occured.
-    /// * edge is oriented a -> b, i.e. a comes before b
-    fn clip_voronoi_edge(&mut self, a: usize, b: usize) -> (Option<usize>, Option<usize>) {
-        let a_pos = &self.vertices[a];
-        let b_pos = &self.vertices[b];
-        let a_to_b = &Point { x: b_pos.x - a_pos.x, y: b_pos.y - a_pos.y };
-
-        // TODO reuse point when same edge is provided by neighbor in the other direction
-        match self.bounding_box.project_ray(a_pos, a_to_b) {
-            // single intersection (i.e a is inside bounding box and b is outside)
-            (Some(first_clip), None) => {
-                // insert intersection and return
-                (Some(self.vertices.pushi(first_clip)), None)
-            },
-
-            // two intersecting points (i.e. a and b are outside bounding box but a->b cross bounding box)
-            (Some(first_clip), Some(second_clip)) => {
-                // it is possible that a -> b intersects the bounding box in a point after b, i.e. the edge does not cross the box
-                // check if first_clip comes before b
-                if bounding_box::order_points_on_ray(a_pos, a_to_b, Some(b_pos.clone()), Some(first_clip.clone())).0 == Some(first_clip.clone()) {
-                    (Some(self.vertices.pushi(first_clip)), Some(self.vertices.pushi(second_clip)))
-                } else {
-                    // a -> b -> box: no intersection
-                    (None, None)
-                }
-            },
-
-            // invalid case
-            (None, Some(_)) => panic!("project_ray must not return second intersection without returning the first intersection"),
-
-            // no intersection
-            (None, None) => (None, None),
-        }
-    }
-
-    fn is_vertex_inside_bounding_box(&self, vertex: usize) -> bool {
-        *self.is_vertex_inside_bounding_box.get(vertex).unwrap_or(&false)
-    }
-
     /// Builds cells for each site.
     /// This won't extend not close the hull.
     /// This will not clip any edges to the bounding box.
@@ -178,51 +108,43 @@ impl<'t> CellBuilder<'t> {
         let sites: &Vec<Point> = self.sites;
         let num_of_sites = sites.len();
         let mut cells: Vec<Vec<usize>> = vec![Vec::new(); num_of_sites];
-
         let mut tmp_cell = Vec::new();
 
-        // fill in cells
+        // For each hull edge a->b, extend its associated circumcenter vertex beyond the bounding box
+        // Add this extended vertex to its cell, and the hull previous cell that shares the same extended vertex
+        for (&a, &b) in triangulation.hull.iter().zip(triangulation.hull.iter().cycle().skip(1)) {
+            let hull_edge = self.site_to_incoming_leftmost_halfedge[b];
+            let extension = self.extend_voronoi_vertex(hull_edge);
+
+            // add extension as first vertex in incoming site
+            cells[b].push(extension);
+            cells[b].extend(EdgesAroundSiteIterator::new(triangulation, hull_edge).map(utils::triangle_of_edge));
+
+            // add extension as last vertex in outgoing site
+            cells[a].push(extension);
+        }
+
+        // Clip hull sites
+        for &hull_site in &triangulation.hull {
+            let hull_cell = &mut cells[hull_site];
+            tmp_cell.clear();
+            std::mem::swap(hull_cell, &mut tmp_cell);
+            self.clip_cell(&tmp_cell, hull_cell, hull_site);
+        }
+
+        // Build and clip remaining cells
         for edge in 0..triangulation.triangles.len() {
+            // note: because we are not processing any hull sites here, all edges will be incoming edge of some site
             let site = site_of_incoming(triangulation, edge);
             let cell = &mut cells[site];
 
             // if cell is empty, it hasn't been processed yet
             if cell.len() == 0 {
-                // edge may or may not be the left-most incoming edge for site, thus get the one
-                // if iterator doesn't start this way, we may end cell vertex iteration early because
-                // we will hit the halfedge in the hull
-                let leftmost_incoming_edge = self.site_to_incoming_leftmost_halfedge[site];
-                let is_site_on_hull = triangulation.halfedges[leftmost_incoming_edge] == EMPTY;
-
                 #[cfg(debug_assertions)] println!();
-                #[cfg(debug_assertions)] println!("Site: {site}. {}. Leftmost incoming edge: {}", if is_site_on_hull { "HULL" } else { "" }, leftmost_incoming_edge);
+                #[cfg(debug_assertions)] println!("Site: {site}.");
 
-                // tmp_cell will have vertices oriented clockwise because of EdgesAroundSiteIterator iterator
                 tmp_cell.clear();
-                let iter = EdgesAroundSiteIterator::new(triangulation, leftmost_incoming_edge);
-
-                if is_site_on_hull {
-                    let mut iter = iter;
-
-                    // hull cells may need to have their first and last vertex extended
-                    if let Some(extension) = self.extend_voronoi_vertex(leftmost_incoming_edge) {
-                        tmp_cell.push(extension);
-                    }
-
-                    let mut last_edge = None;
-                    while let Some(edge) = iter.next() {
-                        tmp_cell.push(utils::triangle_of_edge(edge));
-                        last_edge = Some(edge);
-                    }
-
-                    let last_edge = next_halfedge(last_edge.expect("Hull is at least a triangle"));
-                    #[cfg(debug_assertions)] println!("  Hull last edge {last_edge}");
-                    if let Some(extension) = self.extend_voronoi_vertex(last_edge) {
-                        tmp_cell.push(extension);
-                    }
-                } else {
-                    tmp_cell.extend(iter.map(utils::triangle_of_edge));
-                }
+                tmp_cell.extend(EdgesAroundSiteIterator::new(triangulation, edge).map(utils::triangle_of_edge));
 
                 // iterate over each voronoi edge starting on edge first -> first + 1
                 // iterate on reverse to get counter-clockwise orientation
@@ -233,44 +155,6 @@ impl<'t> CellBuilder<'t> {
         }
 
         cells
-    }
-
-    /// Given two vertices on the hull (first clip and second clip) check whether there is a need to add the bounding box corners in the cell
-    fn insert_clip_and_wrap_around_corners(&mut self, site: usize, cell: &mut Vec<usize>, first_clip: usize, second_clip: usize) {
-        if cell.last() != Some(&first_clip) {
-            cell.push(first_clip);
-        }
-
-        let first_edge = self.bounding_box.which_edge(&self.vertices[first_clip]).expect("First clipped value is expected to be on the edge of the bounding box.");
-        let second_edge = self.bounding_box.which_edge(&self.vertices[second_clip]).expect("Second clipped value is expected to be on the edge of the bounding box.");
-        #[cfg(debug_assertions)] let len = cell.len();
-
-        // first_edge is to the right of first_clip -> second_clip
-        // second_edge is to the left of first_clip -> second_clip
-        if self.corner_ownership[first_edge] == site {
-            // first_edge and all corners counter clockwise need to be added to this cell
-            let mut edge = first_edge;
-            while edge != second_edge && self.corner_ownership[edge] == site {
-                cell.push(self.first_corner_index + edge);
-                self.corner_ownership[edge] = EMPTY; // prevent another edge from duplicating this corner in the cell
-                edge = bounding_box::next_edge(edge);
-            }
-            cell.push(second_clip);
-        } else if self.corner_ownership[second_edge] == site {
-            // second_edge and all corners clockwise need to be added to this cell
-            cell.push(second_clip);
-            let mut edge = second_edge;
-            while edge != first_edge && self.corner_ownership[edge] == site {
-                cell.push(self.first_corner_index + edge);
-                self.corner_ownership[edge] = EMPTY;
-                edge = bounding_box::next_edge(edge);
-            }
-        } else {
-            // line first_clip -> second_clip crosses the box but does not need to wrap around corners
-            cell.push(second_clip);
-        }
-
-        #[cfg(debug_assertions)] println!("  [{site}] Edge {first_clip} ({first_edge}) -> {second_clip} ({second_edge}). Wrapping around {:?}", &cell[len-1..]);
     }
 
     fn clip_cell(&mut self, tmp_cell: &Vec<usize>, cell: &mut Vec<usize>, site: usize) {
@@ -350,6 +234,113 @@ impl<'t> CellBuilder<'t> {
             prev = c;
             prev_inside = inside;
         }
+    }
+
+    /// Clip a voronoi edge on the bounding box's edge, if the edge crosses the bounding box.
+    ///
+    /// The edge may cross the bounding box once (when ```a``` is inside the box) or twice (when ```a``` and ```b``` are outside the box).
+    /// Returns up to two indexes to the new vertex where the clip has occured.
+    /// * edge is oriented a -> b, i.e. a comes before b
+    fn clip_voronoi_edge(&mut self, a: usize, b: usize) -> (Option<usize>, Option<usize>) {
+        let a_pos = &self.vertices[a];
+        let b_pos = &self.vertices[b];
+        let a_to_b = &Point { x: b_pos.x - a_pos.x, y: b_pos.y - a_pos.y };
+
+        // TODO reuse point when same edge is provided by neighbor in the other direction
+        match self.bounding_box.project_ray(a_pos, a_to_b) {
+            // single intersection (i.e a is inside bounding box and b is outside)
+            (Some(first_clip), None) => {
+                // insert intersection and return
+                (Some(self.vertices.pushi(first_clip)), None)
+            },
+
+            // two intersecting points (i.e. a and b are outside bounding box but a->b cross bounding box)
+            (Some(first_clip), Some(second_clip)) => {
+                // it is possible that a -> b intersects the bounding box in a point after b, i.e. the edge does not cross the box
+                // check if first_clip comes before b
+                if bounding_box::order_points_on_ray(a_pos, a_to_b, Some(b_pos.clone()), Some(first_clip.clone())).0 == Some(first_clip.clone()) {
+                    (Some(self.vertices.pushi(first_clip)), Some(self.vertices.pushi(second_clip)))
+                } else {
+                    // a -> b -> box: no intersection
+                    (None, None)
+                }
+            },
+
+            // invalid case
+            (None, Some(_)) => panic!("project_ray must not return second intersection without returning the first intersection"),
+
+            // no intersection
+            (None, None) => (None, None),
+        }
+    }
+
+    /// Given two vertices on the hull (first clip and second clip) check whether there is a need to add the bounding box corners in the cell
+    fn insert_clip_and_wrap_around_corners(&mut self, site: usize, cell: &mut Vec<usize>, first_clip: usize, second_clip: usize) {
+        if cell.last() != Some(&first_clip) {
+            cell.push(first_clip);
+        }
+
+        let first_edge = self.bounding_box.which_edge(&self.vertices[first_clip]).expect("First clipped value is expected to be on the edge of the bounding box.");
+        let second_edge = self.bounding_box.which_edge(&self.vertices[second_clip]).expect("Second clipped value is expected to be on the edge of the bounding box.");
+        #[cfg(debug_assertions)] let len = cell.len();
+
+        // first_edge is to the right of first_clip -> second_clip
+        // second_edge is to the left of first_clip -> second_clip
+        if self.corner_ownership[first_edge] == site {
+            // first_edge and all corners counter clockwise need to be added to this cell
+            let mut edge = first_edge;
+            while edge != second_edge && self.corner_ownership[edge] == site {
+                cell.push(self.first_corner_index + edge);
+                self.corner_ownership[edge] = EMPTY; // prevent another edge from duplicating this corner in the cell
+                edge = bounding_box::next_edge(edge);
+            }
+            cell.push(second_clip);
+        } else if self.corner_ownership[second_edge] == site {
+            // second_edge and all corners clockwise need to be added to this cell
+            cell.push(second_clip);
+            let mut edge = second_edge;
+            while edge != first_edge && self.corner_ownership[edge] == site {
+                cell.push(self.first_corner_index + edge);
+                self.corner_ownership[edge] = EMPTY;
+                edge = bounding_box::next_edge(edge);
+            }
+        } else {
+            // line first_clip -> second_clip crosses the box but does not need to wrap around corners
+            cell.push(second_clip);
+        }
+
+        #[cfg(debug_assertions)] println!("  [{site}] Edge {first_clip} ({first_edge}) -> {second_clip} ({second_edge}). Wrapping around {:?}", &cell[len-1..]);
+    }
+
+    fn extend_voronoi_vertex(&mut self, hull_edge: usize) -> usize {
+        let circumcenter = triangle_of_edge(hull_edge);
+        let circumcenter_pos = &self.vertices[circumcenter];
+
+        let (a, b) = (self.triangulation.triangles[hull_edge], self.triangulation.triangles[next_halfedge(hull_edge)]);
+
+        let a_pos = &self.sites[a];
+        let b_pos = &self.sites[b];
+
+        // the projection direction is orthogonal to the hull's edge (a -> b)
+        // put it just beyong bounding box edge
+        let mut orthogonal = Point { x: a_pos.y - b_pos.y , y: b_pos.x - a_pos.x };
+
+        // normalizing the orthogonal vector
+        let ortho_length = (orthogonal.x * orthogonal.x + orthogonal.y * orthogonal.y).sqrt();
+        orthogonal.x *= 1.0 / ortho_length;
+        orthogonal.y *= 1.0 / ortho_length;
+
+        // project to "inifity"
+        let infinity = 1e+10_f64;
+        let projected = Point { x: circumcenter_pos.x + orthogonal.x * infinity, y: circumcenter_pos.y + orthogonal.y * infinity };
+        let v = self.vertices.pushi(projected);
+
+        #[cfg(debug_assertions)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) extended orthogonally to {a} -> {b} at {}", v);
+        v
+    }
+
+    fn is_vertex_inside_bounding_box(&self, vertex: usize) -> bool {
+        *self.is_vertex_inside_bounding_box.get(vertex).unwrap_or(&false)
     }
 }
 
