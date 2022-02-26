@@ -13,7 +13,6 @@ const LINE_WIDTH: usize = 1;
 const VORONOI_EDGE_COLOR: &str = "blue";
 const TRIANGULATION_HULL_COLOR: &str = "green";
 const TRIANGULATION_LINE_COLOR: &str = "grey";
-const RENDER_LABELS: bool = true;
 const JITTER_RANGE_VALUE: f64 = 15.;
 
 #[derive(clap::Parser, Debug)]
@@ -82,11 +81,32 @@ struct Args {
     /// Whether to render voronoi edges or not
     #[clap(long)]
     render_voronoi_edges: Option<bool>,
+
+    /// Whether to render labels
+    #[clap(long)]
+    render_labels: Option<bool>,
+
+    /// Whether to render site labels
+    #[clap(long)]
+    render_site_labels: Option<bool>,
+
+    /// Whether to render voronoi vertex (circumcenter) labels
+    #[clap(long)]
+    render_voronoi_vertex_labels: Option<bool>,
+
+    /// Whether to render voronoi vertex (circumcenter) labels
+    #[clap(long)]
+    render_edge_labels: Option<bool>,
 }
 
 fn main() -> std::io::Result<()> {
     let mut args = Args::parse();
     args.filter_sites.sort();
+    if args.render_labels == Some(false) {
+        args.render_site_labels = args.render_labels;
+        args.render_voronoi_vertex_labels = args.render_labels;
+        args.render_edge_labels = args.render_labels;
+    }
 
     let sites = if let Some(path) = &args.path {
         // laod sites from file
@@ -111,48 +131,6 @@ fn main() -> std::io::Result<()> {
     if let Some(write_sites) = &args.write_sites {
         serde_json::to_writer_pretty(&File::create(write_sites)?, &sites)?
     }
-
-    // let sites = [
-    //     [0., 0.],
-    //     [100., 100.],
-    //     [100., -100.],
-    //     [-100., -100.],
-    //     [0., -90.],
-    //     [-100., 100.],
-    // ];
-
-    // let sites = [
-    //     [513.3611229325845, 218.20628310225956],
-    //     [313.9123513947884, 232.64372934487739],
-    //     [317.26521105553684, 191.5099287605878],
-    //     [431.7609494497947, 332.2194071471341],
-    //     [522.8488628722222, 709.9493651854054],
-    //     [493.079820505491, 635.2243211927607],
-    //     [230.41888112405147, 128.8067699699542],
-    //     [475.1975240795291, 167.20375411455706],
-    //     [583.7516127789556, 140.76002001786293],
-    //     [649.2958774279067, 515.6097774455709],
-    // ].iter().map(|p| [ p[0] - CANVAS_SIZE / 2.0, p[1] - CANVAS_SIZE / 2.0 ]).collect::<Vec<_>>();
-
-    // let sites = [
-    //     [100., -5.],
-    //     [-100., 5.],
-    //     [100., 5.],
-    //     [-100., -5.],
-    //     [0., 0.],
-    // ];
-
-    // let sites = [
-    //     [250., -310.],
-    //     [-240., 0.],
-    //     [240., 200.],
-    //     [-30., -140.],
-    //     [-50., -250.],
-    //     [-210., 220.],
-    //     //[210., -30.],
-    //     //[-300., -200.],
-    //     [0., 0.],
-    // ];
 
     let transform = build_transformation(&sites, &args);
     let sites = sites.iter().map(|&[x, y]| Point { x, y }).collect();
@@ -187,10 +165,10 @@ fn main() -> std::io::Result<()> {
         bb_y = bounding_box_top_left.y,
         bb_width = bounding_box_side,
         bb_height = bounding_box_side,
-        sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false),
-        circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, true),
+        sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false, args.render_site_labels.unwrap_or(true)),
+        circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, true, args.render_voronoi_vertex_labels.unwrap_or(true)),
         voronoi_edges = if args.render_voronoi_edges.unwrap_or(true) { render_voronoi_edges(&transform, &voronoi, &args) } else { "".to_string() },
-        triangles = render_triangles(&transform, &voronoi),
+        triangles = render_triangles(&transform, &voronoi, args.render_edge_labels.unwrap_or(true)),
         circumcenter_circles = if args.circumcenter { render_circumcenters(&transform, &voronoi) } else { "".to_string() },
     );
 
@@ -202,7 +180,7 @@ fn main() -> std::io::Result<()> {
     File::create(args.output_path)?.write_all(contents.as_bytes())
 }
 
-fn render_triangles(transform: &Transform, voronoi: &Voronoi) -> String {
+fn render_triangles(transform: &Transform, voronoi: &Voronoi, labels: bool) -> String {
     let triangulation = voronoi.triangulation();
     let points = voronoi.sites();
 
@@ -222,7 +200,7 @@ fn render_triangles(transform: &Transform, voronoi: &Voronoi) -> String {
                 width = LINE_WIDTH,
                 color = color);
 
-            if RENDER_LABELS {
+            if labels {
                 acc + &format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{text}</text>"#, x = mid.x, y = mid.y, text = e)
             } else {
                 acc
@@ -233,7 +211,7 @@ fn render_triangles(transform: &Transform, voronoi: &Voronoi) -> String {
     })
 }
 
-fn render_point(transform: &Transform, points: &[Point], color: &str, jitter: bool) -> String {
+fn render_point(transform: &Transform, points: &[Point], color: &str, jitter: bool, labels: bool) -> String {
     let mut rng = rand::thread_rng();
     let jitter_range = rand::distributions::Uniform::new(-JITTER_RANGE_VALUE, JITTER_RANGE_VALUE);
 
@@ -253,7 +231,7 @@ fn render_point(transform: &Transform, points: &[Point], color: &str, jitter: bo
                 pi = i,
                 size = POINT_SIZE,
                 color = color
-            ) + &if RENDER_LABELS { format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{text}</text>"#, text = i) } else { "".to_string() }
+            ) + &if labels { format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{text}</text>"#, text = i) } else { "".to_string() }
         })
 }
 
