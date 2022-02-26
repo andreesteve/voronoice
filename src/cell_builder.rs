@@ -347,6 +347,8 @@ impl<'t> CellBuilder<'t> {
     ///
     /// Returns the index of the newly added vertex or index of existing vertex.
     fn add_new_vertex(&mut self, vertex: Point) -> usize {
+        // the cost of deduplicating vertices is about 5-8% for 1M sites
+        // cache hits really help here, but a future improvement would be test to see if a quadtree makes it faster for large inputs
         for (index, v) in self.vertices.iter().enumerate().skip(self.first_corner_index) {
             if utils::abs_diff_eq(v.x, vertex.x, utils::EQ_EPSILON)
                 && utils::abs_diff_eq(v.y, vertex.y, utils::EQ_EPSILON) {
