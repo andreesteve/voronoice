@@ -2,6 +2,7 @@
 
 [![Crate](https://img.shields.io/crates/v/voronoice.svg)](https://crates.io/crates/voronoice)
 [![API](https://docs.rs/voronoice/badge.svg)](https://docs.rs/voronoice)
+![Build](https://github.com/andreesteve/voronoice/actions/workflows/build/badge.svg)
 
 A nice and fast way to construct 2D [Voronoi diagrams](https://en.wikipedia.org/wiki/Voronoi_diagram) written in Rust.
 
