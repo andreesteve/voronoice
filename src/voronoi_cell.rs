@@ -4,7 +4,7 @@ use delaunator::EMPTY;
 use super::{
     Voronoi,
     Point,
-    iterator::NeighborSiteIterator
+    iterator::TopologicalNeighborSiteIterator
 };
 
 /// Represents a Voronoi cell. This is an ergonomic way to access cell details.
@@ -51,24 +51,24 @@ impl<'v> VoronoiCell<'v> {
         self.site
     }
 
-    /// Gets an iterator for the indices of the triangles in the dual Delaunay triangulation that are associated with this cell.
+    /// Gets a slice of indices into [Voronoi::vertices] used to index the [Point]s representing the voronoi cell vertices.
+    ///
+    /// Semantically these values represent the Delaunay triangles associated with this voronoi cell.
     /// The Voronoi cell vertices are the circumcenters of the associated Delaunay triangles.
-    /// This is a way to index into the underlying Delaunay triangles and this cell's vertices.
     ///
     /// If this cell is on the hull of the diagram (```cell.is_on_hull() == true```), or has had one of its edges clipped, some indices will not match to
     /// Delaunay triangles, but to virtual points added during the process of hull closing and clipping. These values will still correctly index into the [Voronoi::vertices()] vector.
-    #[inline]
-    pub fn iter_triangles(&self) -> impl Iterator<Item = usize> + 'v + Clone {
-        self.voronoi.cells[self.site].iter().copied()
+    pub fn triangles(&self) -> &[usize] {
+        &self.voronoi.cells[self.site]
     }
 
     /// Gets an iterator for the vertices of this cell.
     ///
     /// Vertices are returned in sequential counter-clockwise order.
-    /// Please see [Self::iter_triangles] and [Voronoi::vertices] for additional details regarding hull closing and clipping effects on vertices.
+    /// Please see [Self::triangles] and [Voronoi::vertices] for additional details regarding hull closing and clipping effects on vertices.
     #[inline]
     pub fn iter_vertices(&self) -> impl Iterator<Item = &Point> + Clone {
-        self.iter_triangles().map(move |t| &self.voronoi.circumcenters[t])
+        self.triangles().iter().map(move |&t| &self.voronoi.circumcenters[t])
     }
 
     /// Gets an iterator that returns the index of each site that shared an edge with this cell/site, in a counter-clockwise manner.
@@ -88,8 +88,8 @@ impl<'v> VoronoiCell<'v> {
     /// assert_eq!(neighbors[2], 3);
     ///```
     #[inline]
-    pub fn iter_neighbors(&self) -> NeighborSiteIterator {
-        NeighborSiteIterator::new(self.voronoi, self.site)
+    pub fn iter_neighbors(&self) -> TopologicalNeighborSiteIterator {
+        TopologicalNeighborSiteIterator::new(self.voronoi, self.site)
     }
 
     /// Gets an iterator that returns the shortest path on the Voronoi diagram to the destination point, starting from the current cell.
@@ -107,7 +107,7 @@ impl<'v> VoronoiCell<'v> {
         self.voronoi.triangulation.halfedges[incoming_leftmost_edge] == EMPTY
             // if the cell vertex index is higher than the # of triangles/circumcenters, it means the vertex was added either because
             // it was extending a hull cell or because of clipping (agaisnt bounding box), thus the cell is on the hull
-            || self.iter_triangles().any(|t| t > self.voronoi.number_of_triangles())
+            || self.triangles().iter().any(|&t| t > self.voronoi.number_of_triangles())
     }
 }
 
@@ -149,8 +149,8 @@ impl<'v> fmt::Debug for  VoronoiCell<'v> {
                 }
             })
             .field("vertices", &Cellvertices {
-                triangles: self.iter_triangles().collect(),
-                positions: self.iter_triangles().map(|t| self.voronoi.circumcenters[t].clone()).collect()
+                triangles: self.triangles().iter().copied().collect(),
+                positions: self.triangles().iter().copied().map(|t| self.voronoi.circumcenters[t].clone()).collect()
             })
             .finish()
     }

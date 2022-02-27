@@ -4,7 +4,7 @@ use rand::Rng;
 use voronoice::{BoundingBox, Point, Voronoi, VoronoiBuilder, ClipBehavior};
 use std::{fs::File, io::Write, path::PathBuf};
 const CANVAS_SIZE: f64 = 800.;
-const CANVAS_MARGIN: f64 = 0.1;
+const CANVAS_MARGIN: f64 = 0.;
 const POINT_SIZE: usize = 2;
 const CIRCUMCENTER_CIRCLE_COLOR: &str = "black";
 const SITE_COLOR: &str = "black";

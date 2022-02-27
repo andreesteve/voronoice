@@ -115,8 +115,8 @@ impl<'t> CellBuilder<'t> {
 
             // if cell is empty, it hasn't been processed yet
             if cell.len() == 0 {
-                #[cfg(debug_assertions)] println!();
-                #[cfg(debug_assertions)] println!("Site: {site}.");
+                #[cfg(debug_logs)] println!();
+                #[cfg(debug_logs)] println!("Site: {site}.");
 
                 let circumcenter_iter = EdgesAroundSiteIterator::new(triangulation, edge).map(utils::triangle_of_edge);
                 if self.clip_behavior == ClipBehavior::Clip {
@@ -128,7 +128,7 @@ impl<'t> CellBuilder<'t> {
                     cell.reverse();
                 }
 
-                #[cfg(debug_assertions)] println!("  [{site}/{edge}] Cell: {:?}", cell);
+                #[cfg(debug_logs)] println!("  [{site}/{edge}] Cell: {:?}", cell);
             }
         }
 
@@ -136,7 +136,7 @@ impl<'t> CellBuilder<'t> {
     }
 
     fn clip_cell(&mut self, tmp_cell: &Vec<usize>, cell: &mut Vec<usize>, site: usize) {
-        #[cfg(debug_assertions)] println!("  Temp: {:?}", tmp_cell);
+        #[cfg(debug_logs)] println!("  Temp: {:?}", tmp_cell);
 
         // find the first vertex inside the bounding box
         let (first_index, first, first_inside) = if let Some(inside) = tmp_cell.iter().enumerate().filter(|(_, &c)| self.is_vertex_inside_bounding_box(c)).next() {
@@ -150,7 +150,7 @@ impl<'t> CellBuilder<'t> {
         let mut prev = first;
         let mut prev_inside = first_inside;
         let mut cell_open = false; // everytime we leave the cell, we leave it open and we need to close it
-        #[cfg(debug_assertions)] println!("  Start: Temp[{first_index}] = {first}.");
+        #[cfg(debug_logs)] println!("  Start: Temp[{first_index}] = {first}.");
         for &c in tmp_cell.iter().rev().cycle().skip(tmp_cell.len() - first_index).take(tmp_cell.len()) {
             let inside = self.is_vertex_inside_bounding_box(c);
 
@@ -166,15 +166,15 @@ impl<'t> CellBuilder<'t> {
                             self.insert_edge_and_wrap_around_corners(site, cell,
                                 *cell.last().expect("Cell must not be empty because we started from a vertex inside the bounding box."),
                                 first_clip);
-                            #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box. The box was open.");
+                            #[cfg(debug_logs)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box. The box was open.");
                         }
-                        #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}. First clip: {first_clip}. Second clip: {}", second_clip.unwrap_or_default());
+                        #[cfg(debug_logs)] println!("  [{site}] Edge {prev} -> {c}. First clip: {first_clip}. Second clip: {}", second_clip.unwrap_or_default());
                         self.insert_edge_and_wrap_around_corners(site, cell,
                            first_clip,
                 second_clip.expect("Two intersection points need to occur when a line crosses the bounding box"));
-                        #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box. Entered at {} and left at {}", first_clip, second_clip.unwrap());
+                        #[cfg(debug_logs)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box. Entered at {} and left at {}", first_clip, second_clip.unwrap());
                     } else {
-                        #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box, no intersection.");
+                        #[cfg(debug_logs)] println!("  [{site}] Edge {prev} -> {c}. Edge outside box, no intersection.");
                     }
                 },
 
@@ -187,7 +187,7 @@ impl<'t> CellBuilder<'t> {
                         *cell.last().expect("Cell must not be empty because we started from a vertex inside the bounding box."),
                        first_clip);
                     cell_open = false;
-                    #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}: Entering box at {first_clip} (previously left from {})");
+                    #[cfg(debug_logs)] println!("  [{site}] Edge {prev} -> {c}: Entering box at {first_clip} (previously left from {})");
                 },
 
                 // leaving bounding box - edge crosses bounding box edge from the inside
@@ -199,12 +199,12 @@ impl<'t> CellBuilder<'t> {
                     cell.push(prev);
                     cell.push(first_clip);
                     cell_open = true;
-                    #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}: Leaving box. Added {prev} and clipped at {}", cell.last().unwrap());
+                    #[cfg(debug_logs)] println!("  [{site}] Edge {prev} -> {c}: Leaving box. Added {prev} and clipped at {}", cell.last().unwrap());
                 },
 
                 // edge inside box
                 (true, true) => {
-                    #[cfg(debug_assertions)] println!("  [{site}] Edge {prev} -> {c}: Inside box. Added {prev}.");
+                    #[cfg(debug_logs)] println!("  [{site}] Edge {prev} -> {c}: Inside box. Added {prev}.");
                     cell.push(prev);
                 },
             }
@@ -261,7 +261,7 @@ impl<'t> CellBuilder<'t> {
 
         let first_edge = self.bounding_box.which_edge(&self.vertices[first_clip]).expect("First clipped value is expected to be on the edge of the bounding box.");
         let second_edge = self.bounding_box.which_edge(&self.vertices[second_clip]).expect("Second clipped value is expected to be on the edge of the bounding box.");
-        #[cfg(debug_assertions)] let len = cell.len();
+        #[cfg(debug_logs)] let len = cell.len();
 
         // first_edge is to the right of first_clip -> second_clip
         // second_edge is to the left of first_clip -> second_clip
@@ -288,7 +288,7 @@ impl<'t> CellBuilder<'t> {
             cell.push(second_clip);
         }
 
-        #[cfg(debug_assertions)] println!("  [{site}] Edge {first_clip} ({first_edge}) -> {second_clip} ({second_edge}). Wrapping around {:?}", &cell[len-1..]);
+        #[cfg(debug_logs)] println!("  [{site}] Edge {first_clip} ({first_edge}) -> {second_clip} ({second_edge}). Wrapping around {:?}", &cell[len-1..]);
     }
 
     fn extend_voronoi_vertex(&mut self, hull_edge: usize) -> usize {
@@ -313,7 +313,7 @@ impl<'t> CellBuilder<'t> {
         let projected = Point { x: circumcenter_pos.x + orthogonal.x * VORONOI_INFINITY, y: circumcenter_pos.y + orthogonal.y * VORONOI_INFINITY };
         let v = self.add_new_vertex(projected);
 
-        #[cfg(debug_assertions)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) extended orthogonally to {a} -> {b} at {}", v);
+        #[cfg(debug_logs)] println!("  Hull edge {hull_edge} (circumcenter {circumcenter}) extended orthogonally to {a} -> {b} at {}", v);
         v
     }
 

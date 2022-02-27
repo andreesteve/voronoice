@@ -34,7 +34,7 @@
 //! println!("Second cell has site {:?}, voronoi vertices {:?} and delaunay triangles {:?}",
 //!     my_cell.site_position(),
 //!     my_cell.iter_vertices().collect::<Vec<&Point>>(),
-//!     my_cell.iter_triangles().collect::<Vec<usize>>());
+//!     my_cell.triangles().iter().collect::<Vec<&usize>>());
 //!
 //! // or, for graphical applications, that benefit from index buffers
 //! // you can access the raw, indexed data
@@ -62,6 +62,7 @@ use self::{
 pub use voronoi_builder::VoronoiBuilder;
 pub use bounding_box::BoundingBox;
 pub use voronoi_cell::VoronoiCell;
+pub use iterator::TopologicalNeighborSiteIterator;
 pub use iterator::NeighborSiteIterator;
 pub use iterator::CellPathIterator;
 pub use delaunator::Point;
@@ -315,8 +316,6 @@ mod tests {
 
     #[test]
     fn validate_examples() -> std::io::Result<()> {
-        let basepath = "examples/assets/";
-
         for path in [
             "degenerated1.json",
             "degenerated2.json",
@@ -330,27 +329,7 @@ mod tests {
             "degenerated10.json",
             "clockwise1.json",
         ] {
-            let file = std::fs::File::open(basepath.to_string() + path)?;
-            let sites: Vec<[f64;2]> = serde_json::from_reader(file)?;
-            let sites: Vec<Point> = sites.iter().map(|&[x, y]| Point { x, y }).collect();
-
-            let mut center = sites.iter().fold(Point { x: 0., y: 0. }, |acc, p| Point { x: acc.x + p.x, y: acc.y + p.y });
-            center.x /= sites.len() as f64;
-            center.y /= sites.len() as f64;
-
-            let farthest_distance = sites
-                .iter()
-                .map(|p| {
-                    let (x, y) = (center.x - p.x, center.y - p.y);
-                    x * x + y * y
-                })
-                .reduce(f64::max)
-                .unwrap()
-                .sqrt();
-
-            let voronoi = VoronoiBuilder::default()
-                .set_sites(sites)
-                .set_bounding_box(BoundingBox::new(center, farthest_distance * 2.0, farthest_distance * 2.0))
+            let voronoi = utils::test::new_voronoi_builder_from_asset(path)?
                 .build()
                 .expect("Some voronoi expected");
             utils::test::validate_voronoi(&voronoi);

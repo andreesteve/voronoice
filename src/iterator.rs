@@ -1,5 +1,5 @@
 use delaunator::{Point, Triangulation, next_halfedge};
-use crate::{Voronoi, utils::dist2};
+use crate::{Voronoi, utils::{dist2, site_of_incoming, self}};
 
 use super::{EMPTY};
 
@@ -7,7 +7,7 @@ use super::{EMPTY};
 /// The iteration happens in a clock-wise manner.
 ///
 /// Note: this really only returns edges for triangles around the site. On the convex hull, the rightmost edge will not be returned because there is no incoming rightmost edge.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct EdgesAroundSiteIterator<'t> {
     triangulation: &'t Triangulation,
     start: usize,
@@ -50,16 +50,18 @@ impl<'t> Iterator for EdgesAroundSiteIterator<'t> {
     }
 }
 
-/// Iterates over sites that neighbor another site.
-#[derive(Clone)]
-pub struct NeighborSiteIterator<'t> {
+/// Iterates over sites that are topologically adjacent.
+///
+/// Topological neighbors are sites that share a delaunay edge between them.
+/// To take into account the effect of voronoi edge clipping use [NeighborSiteIterator]
+/// Sites are returned clockwise.
+#[derive(Clone, Debug)]
+pub struct TopologicalNeighborSiteIterator<'t> {
     iter: EdgesAroundSiteIterator<'t>,
-    //triangulation: &'t Triangulation,
-    last: usize,
-    //source_site: usize,
+    last_incoming: usize,
 }
 
-impl<'t> NeighborSiteIterator<'t> {
+impl<'t> TopologicalNeighborSiteIterator<'t> {
     /// Creates iterator based on the site.
     pub fn new(voronoi: &'t Voronoi, site: usize) -> Self {
         Self::with_triangulation(voronoi.triangulation(), &voronoi.site_to_incoming_leftmost_halfedge, site)
@@ -70,76 +72,88 @@ impl<'t> NeighborSiteIterator<'t> {
         let &incoming_leftmost_edge = site_to_incoming_leftmost_halfedge.get(site).expect("Site does not exist");
         Self {
             iter: EdgesAroundSiteIterator::new(&triangulation, incoming_leftmost_edge),
-            //triangulation,
-            //source_site: site,
-            last: EMPTY,
+            last_incoming: EMPTY,
         }
     }
+}
 
+impl<'t> Iterator for TopologicalNeighborSiteIterator<'t> {
+    type Item = usize;
+    /// Get the next neighboring site.
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(incoming_edge) = self.iter.next() {
+            self.last_incoming = incoming_edge;
+            Some(self.iter.triangulation.triangles[incoming_edge])
+        } else if self.last_incoming != EMPTY {
+            // if we are on hull, the last neighbor is not returned by EdgesAroundSiteIterator because there is no halfedge
+            let outgoing = next_halfedge(self.last_incoming);
+            self.last_incoming = EMPTY;
+            if self.iter.triangulation.halfedges[outgoing] == EMPTY {
+                // on hull edge
+                Some(site_of_incoming(self.iter.triangulation, outgoing))
+            } else {
+                // not on hull
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
 
-    // fn has_common_edge(&self, neighbor_site: usize) -> bool {
-    //     // FIXME: this is probably wrong - 2 common vertices are needed for a common edge, but when hull cells are closed
-    //     // same vertice positions are duplicated with new indexes, so simple index comparison here does not work
-    //     // this depends on the fact that at least one of the vertices in common is a original circumcenter
-    //     self.voronoi.cells[self.source_site].iter().any(|t| self.voronoi.cells[neighbor_site].contains(t))
-    // }
+/// Iterates over sites that are adjacent in the voronoi diagram.
+///
+/// This iterator expands on [TopologicalNeighborSiteIterator] by taking into account the clipping effect of voronoi edges to decide whether two sites are neighbors.
+/// In this iterator, two sites are considered neighbors if their voronoi cells share a common edge in the voronoi graph.
+/// Sites on the hull may get disconnected by this classification if their common voronoi edge gets clipped away because it lies beyond the bounding box.
+#[derive(Clone, Debug)]
+pub struct NeighborSiteIterator<'t> {
+    voronoi: &'t Voronoi,
+    topo_neighbor_iter: TopologicalNeighborSiteIterator<'t>,
+    site: usize
+}
+
+impl<'t> NeighborSiteIterator<'t> {
+    pub fn new(voronoi: &'t Voronoi, site: usize) -> Self {
+        Self {
+            voronoi,
+            topo_neighbor_iter: TopologicalNeighborSiteIterator::new(voronoi, site),
+            site
+        }
+    }
 }
 
 impl<'t> Iterator for NeighborSiteIterator<'t> {
     type Item = usize;
-    /// Walks all half-edges around the starting point and returning the associated surrounding sites
+
+    /// Get the next neighboring site.
     fn next(&mut self) -> Option<Self::Item> {
-        let mut site = None;
-        while let Some(incoming) = self.iter.next() {
-            self.last = incoming;
+        let prev_last_incoming = self.topo_neighbor_iter.last_incoming;
 
-            // get site from where the incoming edge came from
-            let neighbor_site = self.iter.triangulation.triangles[incoming];
-            site = Some(neighbor_site);
-            break;
+        if let Some(neighbor) = self.topo_neighbor_iter.next() {
 
-            // voronoi sites are topologically connected to other sites based if there is a delaunay edge between then
-            // however clipping may remove that edge and the associated cells in the voronoi diagram may not share a common edge
-            // this may happen if current and neighbor cells are in the hull
-            // TODO checking if cells are on the hull may cost more than just always checking for common edge
-            // FIXME: add a way to distinguish topological neighbors from visual (clipped) neighbors
-            // let neighbor_cell = self.voronoi.cell(neighbor_site);
-            // if neighbor_cell.is_on_hull() && current_cell.is_on_hull() {
-            //     if self.has_common_edge(neighbor_site) {
-            //         // site and neig// site and neighbor is on hull and they are connected because they share a non-clipped edge
-            //         site = Some(neighbor_site);
-            //         break;
-            //     } else {
-            //         // neighbors on hull do not share an edge (clipped)
-            //         continue;
-            //     }
-            // } else {
-            //     site = Some(neighbor_site);
-            //     break;
-            // }
-        }
+            println!("Prev {prev_last_incoming}, Neighbor {neighbor}, Curr last {}", self.topo_neighbor_iter.last_incoming);
 
-        if site.is_some() {
-            site
-        } else if self.last != EMPTY {
-            // check if there is a next site on the hull
-            let outgoing = next_halfedge(self.last);
-            if self.iter.triangulation.halfedges[outgoing] == EMPTY {
-                // this means we are on the hull and reached the rightmost outgoing edge
-                self.last = EMPTY;
-
-                // FIXME this logic is confusing - ideally this would be merged with the loop above
-                // let neighbor_site = self.iter.triangulation.triangles[next_halfedge(outgoing)];
-                // if self.has_common_edge(neighbor_site) {
-                //     Some(neighbor_site)
-                // } else {
-                //     None
-                // }
-                let neighbor_site = self.iter.triangulation.triangles[next_halfedge(outgoing)];
-                Some(neighbor_site)
+            // if first neighbor and on hull, need special check for clipping
+            if prev_last_incoming == EMPTY
+                && self.voronoi.triangulation.halfedges[self.topo_neighbor_iter.last_incoming] == EMPTY {
+                if utils::has_common_voronoi_edge(self.voronoi, self.site, neighbor) {
+                    Some(neighbor)
+                } else {
+                    // not connected on the voronoi diagram
+                    // move to next
+                    self.next()
+                }
+            } else if self.topo_neighbor_iter.last_incoming == EMPTY {
+                println!("Last check hull");
+                // last neighbor, need speciail check for clipping
+                if utils::has_common_voronoi_edge(self.voronoi, self.site, neighbor) {
+                    Some(neighbor)
+                } else {
+                    None
+                }
             } else {
-                // this means site is not on hull, and we have already iterated over all neighbors
-                None
+                Some(neighbor)
             }
         } else {
             None
@@ -153,7 +167,7 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
 /// The process is evaluated for the next cell in the path until no edge can be taken that costs less than f64::MAX.
 /// If the destionation point is not contained in the Voronoi diagram, the final cell in the path will be the
 /// closest to the destination point.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CellPathIterator<'t, F> {
     site: usize,
     cost_fn: F,
@@ -189,7 +203,7 @@ impl<'t, F> Iterator for CellPathIterator<'t, F>
 
         if current_site != EMPTY {
             // take the neighbor with least cost
-            let next = NeighborSiteIterator::with_triangulation(self.triangulation, self.site_to_incoming_leftmost_halfedge, current_site)
+            let next = TopologicalNeighborSiteIterator::with_triangulation(self.triangulation, self.site_to_incoming_leftmost_halfedge, current_site)
                 .map(|n| (n, (self.cost_fn)(current_site, n)))
                 .min_by(|(_, cost0), (_, cost1)| cost0.partial_cmp(cost1).unwrap());
 
@@ -239,7 +253,7 @@ pub (crate) fn shortest_path_iter_from_triangulation<'t>(triangulation: &'t Tria
 #[cfg(test)]
 mod test {
     use delaunator::Point;
-    use crate::VoronoiBuilder;
+    use crate::{VoronoiBuilder, utils::test::assert_list_eq};
     use super::*;
 
     #[test]
@@ -249,7 +263,8 @@ mod test {
             .set_sites(sites)
             .build()
             .unwrap();
-        let neighbors: Vec<usize> = NeighborSiteIterator::new(&v, 0).collect();
+            println!("here");
+        let neighbors: Vec<usize> = TopologicalNeighborSiteIterator::new(&v, 0).collect();
         assert_eq!(neighbors.len(), 3, "There are 3 neighboring sites");
         assert_eq!(neighbors[0], 4);
         assert_eq!(neighbors[1], 2);
@@ -263,7 +278,7 @@ mod test {
             .set_sites(sites)
             .build()
             .unwrap();
-        let neighbors: Vec<usize> = NeighborSiteIterator::new(&v, 2).collect();
+        let neighbors: Vec<usize> = TopologicalNeighborSiteIterator::new(&v, 2).collect();
         assert_eq!(neighbors.len(), 4, "There are 4 neighboring sites");
         assert_eq!(neighbors[0], 3);
         assert_eq!(neighbors[1], 0);
@@ -271,31 +286,20 @@ mod test {
         assert_eq!(neighbors[3], 1);
     }
 
-    // FIXME https://github.com/andreesteve/voronoice/issues/9
-    // #[test]
-    // fn iter_neighbors_edge_clipped_by_box_test() {
-    //     // points 0 and 1 are neighbors if the bounding box is a square of side 7
-    //     // when bounding box is a square of side 2, the edge between 0 and 1 is removed and 2 becomes a cell in between 0 and 1
+    #[test]
+    fn iter_neighbors_edge_clipped_by_box_test() -> std::io::Result<()> {
+        let voronoi = utils::test::new_voronoi_builder_from_asset("degenerated8.json")?
+            .build()
+            .expect("Some voronoi expected");
 
-    //     // another problematic set is:
-    //     /*
-    //         [-0.5, -0.8],
-    //         [0, -0.5],
-    //         [0.2, -0.5],
-    //         [0.3, -0.5],
-    //     */
+        let neighbors = NeighborSiteIterator::new(&voronoi, 0).collect::<Vec<_>>();
+        assert_list_eq(&[3, 2], &neighbors, "Visible neighbors of 0");
 
-    //     // need to find a way to remove delauney neighbors whose voronoi edges were clipped out
-    //     // comparing edge is one way, comparing circumcenters is another https://github.com/d3/d3-delaunay/pull/98/files
-    //     let sites = vec![Point { x: -1.0, y: -1.0 }, Point { x: 0.0, y: -1.0 }, Point { x: -0.45, y: -0.95 }];
-    //     let v = VoronoiBuilder::default()
-    //         .set_sites(sites.clone())
-    //         .build()
-    //         .unwrap();
-    //     let mut neighbors = NeighborSiteIterator::new(&v, 0);
-    //     assert_eq!(Some(2), neighbors.next());
-    //     assert_eq!(None, neighbors.next());
-    // }
+        let neighbors = NeighborSiteIterator::new(&voronoi, 1).collect::<Vec<_>>();
+        assert_list_eq(&[2], &neighbors, "Visible neighbors of 1");
+
+        Ok(())
+    }
 
     #[test]
     fn iter_cell_path_test() {
@@ -316,32 +320,4 @@ mod test {
         assert_eq!(Some(7), path.next());
         assert_eq!(None, path.next());
     }
-
-    // FIXME: https://github.com/andreesteve/voronoice/issues/9
-    // #[test]
-    // fn iter_cell_path_test_2() {
-    //     let sites = vec![
-    //         Point { x: -0.9, y: -0.9 },
-    //         Point { x: -0.5, y: -0.8 }, Point { x: -0.8, y: -0.6 },
-    //         Point { x: -0.5, y: -0.5 }, Point { x: -0.5, y: 0.0 },
-    //         Point { x: 0.0, y: 0.0 }, Point { x: 0.0, y: 0.5 }, Point { x: 0.0, y: -0.5 },
-    //         Point { x: 0.2, y: 0.0 }, Point { x: 0.2, y: 0.5 }, Point { x: 0.2, y: -0.5 },
-    //         Point { x: 0.3, y: 0.0 }, Point { x: 0.3, y: 0.5 }, Point { x: 0.3, y: -0.5 },
-    //         Point { x: 0.5, y: 0.0 },
-    //         Point { x: 0.5, y: 0.5 },
-    //     ];
-    //     let v = VoronoiBuilder::default()
-    //         .set_sites(sites.clone())
-    //         .build()
-    //         .unwrap();
-    //         let mut path = shortest_path_iter(&v, 0, sites.last().unwrap().clone());
-    //     assert_eq!(Some(0), path.next());
-    //     assert_eq!(Some(1), path.next());
-    //     // this fails because the point 13 is a neighbor of 1; this is technically true if we expand the bounding box to a large value
-    //     // 13 and 1 share a voronoi edge, but that edge is clipped by the bounding box
-    //     assert_eq!(Some(3), path.next());
-    //     assert_eq!(Some(5), path.next());
-    //     assert_eq!(Some(8), path.next());
-    //     assert_eq!(None, path.next());
-    // }
 }

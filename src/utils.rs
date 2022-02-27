@@ -1,5 +1,7 @@
 use delaunator::{Point, Triangulation, next_halfedge};
 
+use crate::Voronoi;
+
 pub(crate) const EQ_EPSILON: f64 = 4. * std::f64::EPSILON;
 
 /// Gets the index of the triangle (starting half-edge) this half-edge belongs to.
@@ -90,10 +92,25 @@ pub fn abs_diff_eq(a: f64, b: f64, epsilon: f64) -> bool {
     }) <= epsilon
 }
 
+/// Given a voronoi and two sites, returns whether they share a common voronoi edge.
+pub fn has_common_voronoi_edge(voronoi: &Voronoi, a: usize, b: usize) -> bool {
+    let mut common = 0;
+    for &ta in voronoi.cell(a).triangles() {
+        for &tb in voronoi.cell(b).triangles() {
+            if ta == tb {
+                common += 1;
+                break;
+            }
+        }
+    }
+
+    common >= 2
+}
+
 #[cfg(test)]
 pub(crate) mod test {
     use delaunator::Point;
-    use crate::Voronoi;
+    use crate::{Voronoi, VoronoiBuilder, BoundingBox};
 
     pub fn validate_voronoi(voronoi: &Voronoi) {
         for cell in voronoi.iter_cells() {
@@ -101,7 +118,7 @@ pub(crate) mod test {
 
             let area = calculate_area(&vertices);
             if area <= 0. {
-                fail(&voronoi, format!("Cell {}: not counter-clockwise. Area is {area}. {:?}", cell.site(), cell.iter_triangles().collect::<Vec<usize>>()));
+                fail(&voronoi, format!("Cell {}: not counter-clockwise. Area is {area}. {:?}", cell.site(), cell.triangles().iter().copied().collect::<Vec<usize>>()));
             }
 
             vertices.iter().enumerate().filter(|(_, p)| !voronoi.bounding_box().is_inside(p)).for_each(|(v, p)| {
@@ -109,11 +126,11 @@ pub(crate) mod test {
             });
 
             if !is_convex(&vertices) {
-                fail(&voronoi, format!("Cell {} is not convex. {:?}", cell.site(), cell.iter_triangles().collect::<Vec<usize>>()));
+                fail(&voronoi, format!("Cell {} is not convex. {:?}", cell.site(), cell.triangles().iter().copied().collect::<Vec<usize>>()));
             }
 
             if !is_point_inside(&vertices, cell.site_position()) {
-                fail(&voronoi, format!("Cell {} site is outside the voronoi cell. {:?}", cell.site(), cell.iter_triangles().collect::<Vec<usize>>()));
+                fail(&voronoi, format!("Cell {} site is outside the voronoi cell. {:?}", cell.site(), cell.triangles().iter().copied().collect::<Vec<usize>>()));
             }
         }
 
@@ -130,6 +147,39 @@ pub(crate) mod test {
             if !inside {
                 fail(&voronoi, format!("Corner {:?} is not inside any hull cell.",&corner));
             }
+        }
+    }
+
+    pub fn new_voronoi_builder_from_asset(asset: &str) -> std::io::Result<VoronoiBuilder> {
+        let basepath = "examples/assets/";
+
+        let file = std::fs::File::open(basepath.to_string() + asset)?;
+        let sites: Vec<[f64;2]> = serde_json::from_reader(file)?;
+        let sites: Vec<Point> = sites.iter().map(|&[x, y]| Point { x, y }).collect();
+
+        let mut center = sites.iter().fold(Point { x: 0., y: 0. }, |acc, p| Point { x: acc.x + p.x, y: acc.y + p.y });
+        center.x /= sites.len() as f64;
+        center.y /= sites.len() as f64;
+
+        let farthest_distance = sites
+            .iter()
+            .map(|p| {
+                let (x, y) = (center.x - p.x, center.y - p.y);
+                x * x + y * y
+            })
+            .reduce(f64::max)
+            .unwrap()
+            .sqrt();
+
+        Ok(VoronoiBuilder::default()
+            .set_sites(sites)
+            .set_bounding_box(BoundingBox::new(center, farthest_distance * 2.0, farthest_distance * 2.0)))
+    }
+
+    pub fn assert_list_eq<T>(expected: &[T], actual: &[T], message: &str) where T : std::fmt::Debug + Eq {
+        assert_eq!(expected.len(), actual.len(), "Lists do not have same length. {} Expected: {:?}, Actual: {:?}", message, expected, actual);
+        for i in 0..expected.len() {
+            assert_eq!(expected[i], actual[i], "Elements differ at index {i}. {} Expected: {:?}, Actual: {:?}", message, expected, actual);
         }
     }
 
