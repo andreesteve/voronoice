@@ -4,7 +4,7 @@ use delaunator::EMPTY;
 use super::{
     Voronoi,
     Point,
-    iterator::TopologicalNeighborSiteIterator
+    iterator::NeighborSiteIterator
 };
 
 /// Represents a Voronoi cell. This is an ergonomic way to access cell details.
@@ -88,8 +88,8 @@ impl<'v> VoronoiCell<'v> {
     /// assert_eq!(neighbors[2], 3);
     ///```
     #[inline]
-    pub fn iter_neighbors(&self) -> TopologicalNeighborSiteIterator {
-        TopologicalNeighborSiteIterator::new(self.voronoi, self.site)
+    pub fn iter_neighbors(&self) -> NeighborSiteIterator {
+        NeighborSiteIterator::new(self.voronoi, self.site)
     }
 
     /// Gets an iterator that returns the shortest path on the Voronoi diagram to the destination point, starting from the current cell.

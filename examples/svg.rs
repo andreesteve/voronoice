@@ -281,8 +281,6 @@ fn render_voronoi_edges(transform: &Transform, voronoi: &Voronoi, args: &Args) -
                 color = VORONOI_EDGE_COLOR);
         };
 
-        // TODO: cycle() needs clone, instead of returning Impl Iterator, return a proper iterator struct
-        // using a ugly chain below to get (current, next) vertices of a cell
         if let Some(first) = cell.iter_vertices().next() {
             if args.clip_behavior != ClipBehavior::Clip && cell.is_on_hull() {
                 // hull cells are not closed when clipping is disabled so we should not render last edge

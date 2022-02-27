@@ -131,9 +131,6 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
         let prev_last_incoming = self.topo_neighbor_iter.last_incoming;
 
         if let Some(neighbor) = self.topo_neighbor_iter.next() {
-
-            println!("Prev {prev_last_incoming}, Neighbor {neighbor}, Curr last {}", self.topo_neighbor_iter.last_incoming);
-
             // if first neighbor and on hull, need special check for clipping
             if prev_last_incoming == EMPTY
                 && self.voronoi.triangulation.halfedges[self.topo_neighbor_iter.last_incoming] == EMPTY {
@@ -145,7 +142,6 @@ impl<'t> Iterator for NeighborSiteIterator<'t> {
                     self.next()
                 }
             } else if self.topo_neighbor_iter.last_incoming == EMPTY {
-                println!("Last check hull");
                 // last neighbor, need speciail check for clipping
                 if utils::has_common_voronoi_edge(self.voronoi, self.site, neighbor) {
                     Some(neighbor)
@@ -263,7 +259,7 @@ mod test {
             .set_sites(sites)
             .build()
             .unwrap();
-            println!("here");
+
         let neighbors: Vec<usize> = TopologicalNeighborSiteIterator::new(&v, 0).collect();
         assert_eq!(neighbors.len(), 3, "There are 3 neighboring sites");
         assert_eq!(neighbors[0], 4);
