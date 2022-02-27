@@ -97,6 +97,10 @@ struct Args {
     /// Whether to render voronoi vertex (circumcenter) labels
     #[clap(long)]
     render_edge_labels: Option<bool>,
+
+    /// Adds a bit of jitter when redering circumcenters
+    #[clap(long)]
+    jitter: bool,
 }
 
 fn main() -> std::io::Result<()> {
@@ -166,7 +170,7 @@ fn main() -> std::io::Result<()> {
         bb_width = bounding_box_side,
         bb_height = bounding_box_side,
         sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false, args.render_site_labels.unwrap_or(true)),
-        circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, true, args.render_voronoi_vertex_labels.unwrap_or(true)),
+        circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, args.jitter, args.render_voronoi_vertex_labels.unwrap_or(true)),
         voronoi_edges = if args.render_voronoi_edges.unwrap_or(true) { render_voronoi_edges(&transform, &voronoi, &args) } else { "".to_string() },
         triangles = render_triangles(&transform, &voronoi, args.render_edge_labels.unwrap_or(true)),
         circumcenter_circles = if args.circumcenter { render_circumcenters(&transform, &voronoi) } else { "".to_string() },

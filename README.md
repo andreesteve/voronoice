@@ -67,8 +67,22 @@ A comparison benchmark with other Rust Voronoi diagram generating libraries can 
 
 # Examples
 
-You can run the examples by ```cargo run --example <name>```
+## [svg](examples/svg.rs)
 
-* [image](examples/image.rs) - given an input image and factor, generates a color-averaged image by overlaying a Voronoi diagram
-* [svg](examples/svg.rs) - generates a SVG image for a random set of initial sites
+```cargo run --example svg -- -s10 -l2 -o example.svg -z0.8 --render-labels false```
+
+Generates a SVG image to visualize the Voronoi-Delaunay graph. Provide ```--help``` to see other options.
+
+![Example of SVG Voronoi](examples/assets/example.svg)
+
+## [image](examples/image.rs)
+
+```cargo run --release --example image -- examples/assets/mona_noice_small.jpg 300```
+
+ Generates a color averaged image by overlaying a Voronoi diagram
+
+![Original image](examples/assets/mona_noice.jpg)
+![Image after voronoi cell averaging](examples/assets/mona_noice_voronoi.jpg)
+
+* [svg](examples/svg.rs) -
 * [voronoice-inspector](https://github.com/andreesteve/voronoice-inspector) - an interactive tool to render and inspect Voronoi diagrams
