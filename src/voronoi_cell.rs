@@ -58,8 +58,24 @@ impl<'v> VoronoiCell<'v> {
     ///
     /// If this cell is on the hull of the diagram (```cell.is_on_hull() == true```), or has had one of its edges clipped, some indices will not match to
     /// Delaunay triangles, but to virtual points added during the process of hull closing and clipping. These values will still correctly index into the [Voronoi::vertices()] vector.
-    pub fn triangles(&self) -> &[usize] {
+    #[inline]
+    pub fn triangles(&self) -> &'v [usize] {
         &self.voronoi.cells[self.site]
+    }
+
+    /// Gets an iterator for [triangles].
+    #[inline]
+    pub fn iter_triangles(&self) -> impl Iterator<Item = usize> + 'v + Clone {
+        self.voronoi.cells[self.site].iter().copied()
+    }
+
+    /// Gets an iterator that returns pairs of indices representing each edge of this voronoi cell (indices of [triangles]).
+    ///
+    /// If the voronoi diagram was built with clipping disabled, the cells in the hull will not be closed, so the last edge returned by this iterator should be discarted.
+    #[inline]
+    pub fn iter_edges(&self) -> impl Iterator<Item = (usize, usize)> + 'v + Clone {
+        self.iter_triangles()
+            .zip(self.iter_triangles().skip(1).chain(std::iter::once(*self.triangles().first().unwrap())))
     }
 
     /// Gets an iterator for the vertices of this cell.
