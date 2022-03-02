@@ -37,6 +37,10 @@ harness = false
 name = "compare_with_deps"
 harness = false
 
+[[bench]]
+name = "profile"
+harness = false
+
 [[example]]
 name = "image"
 path = "examples/image.rs"
