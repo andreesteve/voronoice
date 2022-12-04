@@ -7,8 +7,8 @@ pub fn create_random_builder(size: usize) -> VoronoiBuilder {
     let builder = VoronoiBuilder::default();
     let bbox = BoundingBox::default();
 
-    let x_range = rand::distributions::Uniform::new(-bbox.width(), bbox.width());
-    let y_range = rand::distributions::Uniform::new(-bbox.height(), bbox.height());
+    let x_range = rand::distributions::Uniform::new(-bbox.width() / 2.0, bbox.width() / 2.0);
+    let y_range = rand::distributions::Uniform::new(-bbox.height() / 2.0, bbox.height() / 2.0);
     let sites = (0..size)
         .map(|_| Point { x: rng.sample(x_range), y: rng.sample(y_range) })
         .collect();
