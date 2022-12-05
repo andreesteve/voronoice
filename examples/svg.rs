@@ -78,6 +78,10 @@ struct Args {
     #[clap(long)]
     bounding_box_side: Option<f64>,
 
+    /// Whether to render delaunay edges or not
+    #[clap(long)]
+    render_delaunay_edges: Option<bool>,
+
     /// Whether to render voronoi edges or not
     #[clap(long)]
     render_voronoi_edges: Option<bool>,
@@ -172,7 +176,7 @@ fn main() -> std::io::Result<()> {
         sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false, args.render_site_labels.unwrap_or(true)),
         circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, args.jitter, args.render_voronoi_vertex_labels.unwrap_or(true)),
         voronoi_edges = if args.render_voronoi_edges.unwrap_or(true) { render_voronoi_edges(&transform, &voronoi, &args) } else { "".to_string() },
-        triangles = render_triangles(&transform, &voronoi, args.render_edge_labels.unwrap_or(true)),
+        triangles = render_triangles(&transform, &voronoi, args.render_edge_labels.unwrap_or(true), args.render_delaunay_edges.unwrap_or(true)),
         circumcenter_circles = if args.circumcenter { render_circumcenters(&transform, &voronoi) } else { "".to_string() },
     );
 
@@ -184,7 +188,7 @@ fn main() -> std::io::Result<()> {
     File::create(args.output_path)?.write_all(contents.as_bytes())
 }
 
-fn render_triangles(transform: &Transform, voronoi: &Voronoi, labels: bool) -> String {
+fn render_triangles(transform: &Transform, voronoi: &Voronoi, labels: bool, edges: bool) -> String {
     let triangulation = voronoi.triangulation();
     let points = voronoi.sites();
 
@@ -199,14 +203,18 @@ fn render_triangles(transform: &Transform, voronoi: &Voronoi, labels: bool) -> S
                 (TRIANGULATION_LINE_COLOR, format!("{e} ({})", triangulation.halfedges[e]))
             };
 
-            let acc = acc + &format!(r#"<line id="dedge_{id}" stroke-dasharray="10,10" x1="{x0}" y1="{y0}" x2="{x1}" y2="{y1}" style="stroke:{color};stroke-width:{width}" />"#,
+            let acc = if edges {
+                acc + &format!(r#"<line id="dedge_{id}" stroke-dasharray="10,10" x1="{x0}" y1="{y0}" x2="{x1}" y2="{y1}" style="stroke:{color};stroke-width:{width}" />"#,
                 id = e,
                 x0 = start.x,
                 y0 = start.y,
                 x1=end.x,
                 y1=end.y,
                 width = LINE_WIDTH,
-                color = color);
+                color = color)
+            } else {
+                acc
+            };
 
             if labels {
                 acc + &format!(r#"<text x="{x}" y="{y}" style="stroke:{color};">{label}</text>"#, x = mid.x, y = mid.y)
