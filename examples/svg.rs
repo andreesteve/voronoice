@@ -40,7 +40,7 @@ struct Args {
 
     /// Writes output svg to path
     #[clap(short, long)]
-    output_path: PathBuf,
+    output_path: Option<PathBuf>,
 
     /// Number of lloyd iterations to run
     #[clap(short, long, default_value_t = 0)]
@@ -152,40 +152,45 @@ fn main() -> std::io::Result<()> {
         .build()
         .expect("Couldn't build voronoi");
 
-    let bounding_box_top_left = transform.transform(&Point { x: voronoi.bounding_box().left(), y: voronoi.bounding_box().top() });
-    let bounding_box_side = transform.transform(voronoi.bounding_box().bottom_left()).y - bounding_box_top_left.y;
+    if let Some(output_path) = &args.output_path {
+        let bounding_box_top_left = transform.transform(&Point { x: voronoi.bounding_box().left(), y: voronoi.bounding_box().top() });
+        let bounding_box_side = transform.transform(voronoi.bounding_box().bottom_left()).y - bounding_box_top_left.y;
 
-    // generate SVG
-    let contents = format!(
-        r#"
-<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-<rect width="100%" height="100%" fill="white" />
-<rect x="{bb_x}" y="{bb_y}" width="{bb_width}" height="{bb_height}" style="fill-opacity:0;stroke-opacity:0.25;stroke-width:3;stroke:rgb(0,0,0)" />
-    {sites}
-    {circumcenters}
-    {voronoi_edges}
-    {triangles}
-    {circumcenter_circles}
-</svg>"#,
-        width = CANVAS_SIZE,
-        height = CANVAS_SIZE,
-        bb_x = bounding_box_top_left.x,
-        bb_y = bounding_box_top_left.y,
-        bb_width = bounding_box_side,
-        bb_height = bounding_box_side,
-        sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false, args.render_site_labels.unwrap_or(true)),
-        circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, args.jitter, args.render_voronoi_vertex_labels.unwrap_or(true)),
-        voronoi_edges = if args.render_voronoi_edges.unwrap_or(true) { render_voronoi_edges(&transform, &voronoi, &args) } else { "".to_string() },
-        triangles = render_triangles(&transform, &voronoi, args.render_edge_labels.unwrap_or(true), args.render_delaunay_edges.unwrap_or(true)),
-        circumcenter_circles = if args.circumcenter { render_circumcenters(&transform, &voronoi) } else { "".to_string() },
-    );
+        // generate SVG
+        let contents = format!(
+            r#"
+    <svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100%" height="100%" fill="white" />
+    <rect x="{bb_x}" y="{bb_y}" width="{bb_width}" height="{bb_height}" style="fill-opacity:0;stroke-opacity:0.25;stroke-width:3;stroke:rgb(0,0,0)" />
+        {sites}
+        {circumcenters}
+        {voronoi_edges}
+        {triangles}
+        {circumcenter_circles}
+    </svg>"#,
+            width = CANVAS_SIZE,
+            height = CANVAS_SIZE,
+            bb_x = bounding_box_top_left.x,
+            bb_y = bounding_box_top_left.y,
+            bb_width = bounding_box_side,
+            bb_height = bounding_box_side,
+            sites = render_point(&transform, voronoi.sites(), SITE_COLOR, false, args.render_site_labels.unwrap_or(true)),
+            circumcenters = render_point(&transform, voronoi.vertices(), CIRCUMCENTER_COLOR, args.jitter, args.render_voronoi_vertex_labels.unwrap_or(true)),
+            voronoi_edges = if args.render_voronoi_edges.unwrap_or(true) { render_voronoi_edges(&transform, &voronoi, &args) } else { "".to_string() },
+            triangles = render_triangles(&transform, &voronoi, args.render_edge_labels.unwrap_or(true), args.render_delaunay_edges.unwrap_or(true)),
+            circumcenter_circles = if args.circumcenter { render_circumcenters(&transform, &voronoi) } else { "".to_string() },
+        );
 
-    if args.debug {
-        println!("{:#?}", voronoi);
-        println!("Hull: {:#?}", voronoi.triangulation().hull);
+        if args.debug {
+            println!("{:#?}", voronoi);
+            println!("Hull: {:#?}", voronoi.triangulation().hull);
+        }
+
+        File::create(output_path)?.write_all(contents.as_bytes())
+    } else {
+        println!("No output path provided. voronoi generated in memory and discarted.");
+        Ok(())
     }
-
-    File::create(args.output_path)?.write_all(contents.as_bytes())
 }
 
 fn render_triangles(transform: &Transform, voronoi: &Voronoi, labels: bool, edges: bool) -> String {
