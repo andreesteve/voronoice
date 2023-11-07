@@ -22,6 +22,7 @@ let sites = vec![
 let my_voronoi = VoronoiBuilder::default()
     .set_sites(sites)
     .set_bounding_box(BoundingBox::new_centered_square(4.0))
+    .set_distance_function(DistanceFunction::Euclidean)
     .set_lloyd_relaxation_iterations(5)
     .build()
     .unwrap();

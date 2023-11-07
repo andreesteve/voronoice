@@ -1,4 +1,4 @@
-use crate::DistanceFunctions;
+use crate::DistanceFunction;
 
 use super::{BoundingBox, ClipBehavior, Point, Voronoi};
 use super::utils::calculate_approximated_cetroid;
@@ -10,7 +10,7 @@ pub struct VoronoiBuilder {
     lloyd_iterations: usize,
     bounding_box: BoundingBox,
     clip_behavior: ClipBehavior,
-    distance_function: DistanceFunctions,
+    distance_function: DistanceFunction,
 }
 
 impl VoronoiBuilder {
@@ -34,7 +34,7 @@ impl VoronoiBuilder {
     /// Sets the [DistanceFunctions] to be used when building the graph.
     /// 
     /// Default value is [DistanceFunctions::default()].
-    pub fn set_distance_function(mut self, distance_function: DistanceFunctions) -> Self {
+    pub fn set_distance_function(mut self, distance_function: DistanceFunction) -> Self {
         self.distance_function = distance_function;
         self
     }

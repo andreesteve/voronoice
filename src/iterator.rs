@@ -1,5 +1,5 @@
 use delaunator::{Point, Triangulation, next_halfedge};
-use crate::{Voronoi, utils::{site_of_incoming, self, euclidean_distance, manhattan_distance, chebyshev_distance, minkowski_distance, cosine_similarity, canberra_distance, bray_curtis_distance, jaccard_distance}, DistanceFunctions};
+use crate::{Voronoi, utils::{site_of_incoming, self, euclidean_distance, manhattan_distance, chebyshev_distance, minkowski_distance, cosine_similarity, canberra_distance, bray_curtis_distance, jaccard_distance}, DistanceFunction};
 
 use super::{EMPTY};
 
@@ -230,19 +230,19 @@ pub fn shortest_path_iter<'v>(voronoi: &'v Voronoi, start_site: usize, dest: Poi
     shortest_path_iter_from_triangulation(voronoi.triangulation(), &voronoi.sites(), &voronoi.site_to_incoming_leftmost_halfedge, start_site, dest, &voronoi.distance_function)
 }
 
-pub (crate) fn shortest_path_iter_from_triangulation<'t>(triangulation: &'t Triangulation, sites: &'t Vec<Point>, site_to_incoming_leftmost_halfedge: &'t Vec<usize>, start_site: usize, dest: Point, distance_func: &'t DistanceFunctions) -> impl Iterator<Item = usize> + 't {
+pub (crate) fn shortest_path_iter_from_triangulation<'t>(triangulation: &'t Triangulation, sites: &'t Vec<Point>, site_to_incoming_leftmost_halfedge: &'t Vec<usize>, start_site: usize, dest: Point, distance_func: &'t DistanceFunction) -> impl Iterator<Item = usize> + 't {
     CellPathIterator::with_triangulation(triangulation, site_to_incoming_leftmost_halfedge, start_site, move |curr, next| {
         // calculate distance
         let (dist_to_dest, dist_from_next): (f64,f64) = match distance_func {
-            DistanceFunctions::Euclidean => (euclidean_distance(&sites[curr], &dest), euclidean_distance(&sites[next], &dest)),
-            DistanceFunctions::Manhattan => (manhattan_distance(&sites[curr], &dest), manhattan_distance(&sites[next], &dest)),
-            DistanceFunctions::Chebyshev => (chebyshev_distance(&sites[curr], &dest), chebyshev_distance(&sites[next], &dest)),
-            DistanceFunctions::Minkowski(p) => (minkowski_distance(&sites[curr], &dest, *p), minkowski_distance(&sites[next], &dest, *p)),
-            DistanceFunctions::CosineSimilarity => (cosine_similarity(&sites[curr], &dest), cosine_similarity(&sites[next], &dest)),
-            DistanceFunctions::Canberra => (canberra_distance(&sites[curr], &dest), canberra_distance(&sites[next], &dest)),
-            DistanceFunctions::BrayCurtis => (bray_curtis_distance(&sites[curr], &dest), bray_curtis_distance(&sites[next], &dest)),
-            DistanceFunctions::Jaccard => (jaccard_distance(&sites[curr], &dest), jaccard_distance(&sites[next], &dest)),
-            DistanceFunctions::Custom(f) => (f(&sites[curr], &dest), f(&sites[next], &dest)),
+            DistanceFunction::Euclidean => (euclidean_distance(&sites[curr], &dest), euclidean_distance(&sites[next], &dest)),
+            DistanceFunction::Manhattan => (manhattan_distance(&sites[curr], &dest), manhattan_distance(&sites[next], &dest)),
+            DistanceFunction::Chebyshev => (chebyshev_distance(&sites[curr], &dest), chebyshev_distance(&sites[next], &dest)),
+            DistanceFunction::Minkowski(p) => (minkowski_distance(&sites[curr], &dest, *p), minkowski_distance(&sites[next], &dest, *p)),
+            DistanceFunction::CosineSimilarity => (cosine_similarity(&sites[curr], &dest), cosine_similarity(&sites[next], &dest)),
+            DistanceFunction::Canberra => (canberra_distance(&sites[curr], &dest), canberra_distance(&sites[next], &dest)),
+            DistanceFunction::BrayCurtis => (bray_curtis_distance(&sites[curr], &dest), bray_curtis_distance(&sites[next], &dest)),
+            DistanceFunction::Jaccard => (jaccard_distance(&sites[curr], &dest), jaccard_distance(&sites[next], &dest)),
+            DistanceFunction::Custom(f) => (f(&sites[curr], &dest), f(&sites[next], &dest)),
 
             };
 

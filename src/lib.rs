@@ -84,7 +84,7 @@ pub enum ClipBehavior {
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Copy)]
-pub enum DistanceFunctions{
+pub enum DistanceFunction{
     #[default]
     Euclidean,
     Manhattan,
@@ -133,7 +133,7 @@ pub struct Voronoi {
     bounding_box: BoundingBox,
     triangulation: Triangulation,
     clip_behavior: ClipBehavior,
-    distance_function: DistanceFunctions,
+    distance_function: DistanceFunction,
 
     /// The circumcenter of each triangle (indexed by triangle / triangle's starting half-edge).
     ///
@@ -165,7 +165,7 @@ impl std::fmt::Debug for Voronoi {
 // For instances, diag.triangles.len() is the number of starting edges and triangles in the triangulation, you can think of diag.triangles[e] as 'e' as being both the index of the
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
-    fn new(sites: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior, distance_function: DistanceFunctions) -> Option<Self> {
+    fn new(sites: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior, distance_function: DistanceFunction) -> Option<Self> {
         // remove any points not within bounding box
         let sites = match clip_behavior {
             ClipBehavior::RemoveSitesOutsideBoundingBoxOnly | ClipBehavior::Clip => sites.into_iter().filter(|p| bounding_box.is_inside(p)).collect::<Vec<Point>>(),
