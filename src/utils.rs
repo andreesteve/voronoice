@@ -76,12 +76,56 @@ pub fn cicumcenter(a: &Point, b: &Point, c: &Point) -> Point {
     }
 }
 
-/// Calculates the squared distance between a and b
-pub fn dist2(a: &Point, b: &Point) -> f64 {
+pub fn euclidean_distance(a: &Point, b: &Point) -> f64 {
     let x = a.x - b.x;
     let y = a.y - b.y;
     (x * x) + (y * y)
 }
+
+pub fn manhattan_distance(a: &Point, b: &Point) -> f64 {
+    (a.x - b.x).abs() + (a.y - b.y).abs()
+}
+
+pub fn chebyshev_distance(a: &Point, b: &Point) -> f64 {
+    let x = (a.x - b.x).abs();
+    let y = (a.y - b.y).abs();
+    if x > y {
+        x
+    } else {
+        y
+    }
+}
+
+pub fn minkowski_distance(a: &Point, b: &Point, p: f64) -> f64 {
+    let x = (a.x - b.x).abs().powf(p);
+    let y = (a.y - b.y).abs().powf(p);
+    (x + y).powf(1.0 / p)
+}
+
+pub fn cosine_similarity(a: &Point, b: &Point) -> f64 {
+    let x = a.x * b.x + a.y * b.y;
+    let y = (a.x * a.x + a.y * a.y).sqrt() * (b.x * b.x + b.y * b.y).sqrt();
+    x / y
+}
+
+pub fn jaccard_distance(a: &Point, b: &Point) -> f64 {
+    let x = a.x * b.x + a.y * b.y;
+    let y = a.x * a.x + a.y * a.y + b.x * b.x + b.y * b.y;
+    1.0 - x / y
+}
+
+pub fn bray_curtis_distance(a: &Point, b: &Point) -> f64 {
+    let x = (a.x - b.x).abs() + (a.y - b.y).abs();
+    let y = (a.x + b.x).abs() + (a.y + b.y).abs();
+    x / y
+}
+
+pub fn canberra_distance(a: &Point, b: &Point) -> f64 {
+    let x = (a.x - b.x).abs();
+    let y = (a.x + b.x).abs();
+    x / y
+}
+
 
 #[inline]
 pub fn abs_diff_eq(a: f64, b: f64, epsilon: f64) -> bool {

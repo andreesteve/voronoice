@@ -1,3 +1,5 @@
+use crate::DistanceFunctions;
+
 use super::{BoundingBox, ClipBehavior, Point, Voronoi};
 use super::utils::calculate_approximated_cetroid;
 
@@ -8,6 +10,7 @@ pub struct VoronoiBuilder {
     lloyd_iterations: usize,
     bounding_box: BoundingBox,
     clip_behavior: ClipBehavior,
+    distance_function: DistanceFunctions,
 }
 
 impl VoronoiBuilder {
@@ -25,6 +28,14 @@ impl VoronoiBuilder {
     /// Default value is [ClipBehavior::default()].
     pub fn set_clip_behavior(mut self, clip_behavior: ClipBehavior) -> Self {
         self.clip_behavior = clip_behavior;
+        self
+    }
+
+    /// Sets the [DistanceFunctions] to be used when building the graph.
+    /// 
+    /// Default value is [DistanceFunctions::default()].
+    pub fn set_distance_function(mut self, distance_function: DistanceFunctions) -> Self {
+        self.distance_function = distance_function;
         self
     }
 
@@ -69,6 +80,7 @@ impl VoronoiBuilder {
             self.sites.take().expect("Cannot build voronoi without sites. Call set_sites() first."),
             self.bounding_box.clone(),
             self.clip_behavior,
+            self.distance_function
         );
 
         self.perform_lloyd_relaxation(v)
@@ -139,6 +151,7 @@ impl VoronoiBuilder {
         Self {
             bounding_box: v.bounding_box.clone(),
             clip_behavior: v.clip_behavior,
+            distance_function: v.distance_function,
             lloyd_iterations: 0,
             sites: None,
         }
