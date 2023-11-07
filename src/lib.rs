@@ -51,6 +51,7 @@ mod iterator;
 mod utils;
 mod voronoi_builder;
 
+use std::default;
 use std::{fmt::Display, str::FromStr};
 
 use delaunator::{EMPTY, Triangulation, triangulate};
@@ -80,6 +81,20 @@ pub enum ClipBehavior {
 
     /// Removes sites outside bounding box and clips any Voronoi cell edges that fall outside of the bounding box.
     Clip,
+}
+
+#[derive(Debug, Clone, PartialEq, Default, Copy)]
+pub enum DistanceFunction{
+    #[default]
+    Euclidean,
+    Manhattan,
+    Chebyshev,
+    Minkowski(f64),
+    CosineSimilarity,
+    Canberra,
+    BrayCurtis,
+    Jaccard,
+    Custom(fn(&Point, &Point) -> f64)
 }
 
 impl Default for ClipBehavior {
@@ -118,6 +133,7 @@ pub struct Voronoi {
     bounding_box: BoundingBox,
     triangulation: Triangulation,
     clip_behavior: ClipBehavior,
+    distance_function: DistanceFunction,
 
     /// The circumcenter of each triangle (indexed by triangle / triangle's starting half-edge).
     ///
@@ -149,7 +165,7 @@ impl std::fmt::Debug for Voronoi {
 // For instances, diag.triangles.len() is the number of starting edges and triangles in the triangulation, you can think of diag.triangles[e] as 'e' as being both the index of the
 // starting edge and the triangle it represents. When dealing with an arbitraty edge, it may not be a starting edge. You can get the starting edge by dividing the edge by 3 and flooring it.
 impl Voronoi {
-    fn new(sites: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Option<Self> {
+    fn new(sites: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior, distance_function: DistanceFunction) -> Option<Self> {
         // remove any points not within bounding box
         let sites = match clip_behavior {
             ClipBehavior::RemoveSitesOutsideBoundingBoxOnly | ClipBehavior::Clip => sites.into_iter().filter(|p| bounding_box.is_inside(p)).collect::<Vec<Point>>(),
@@ -173,7 +189,7 @@ impl Voronoi {
         ).collect();
 
         // create cell builder to build cells and update circumcenters
-        let cell_builder = CellBuilder::new(&triangulation, &sites, circumcenters, bounding_box.clone(), clip_behavior);
+        let cell_builder = CellBuilder::new(&triangulation, &sites, circumcenters, bounding_box.clone(), clip_behavior, distance_function);
         let result = cell_builder.build();
 
         Some(Voronoi {
@@ -183,7 +199,8 @@ impl Voronoi {
             sites,
             clip_behavior,
             circumcenters: result.vertices,
-            cells: result.cells
+            cells: result.cells,
+            distance_function,
         })
     }
 

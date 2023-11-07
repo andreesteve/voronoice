@@ -1,5 +1,5 @@
 use delaunator::{EMPTY, next_halfedge, Triangulation};
-use crate::{utils::{triangle_of_edge}, BoundingBox, bounding_box};
+use crate::{utils::{triangle_of_edge}, BoundingBox, bounding_box, DistanceFunction};
 use super::{ClipBehavior, Point, iterator::EdgesAroundSiteIterator, utils::{self, site_of_incoming}};
 
 const VORONOI_INFINITY: f64 = 1e+10_f64;
@@ -25,12 +25,12 @@ pub struct CellBuilderResult {
 }
 
 impl<'t> CellBuilder<'t> {
-    pub fn new(triangulation: &'t Triangulation, sites: &'t Vec<Point>, vertices: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior) -> Self {
+    pub fn new(triangulation: &'t Triangulation, sites: &'t Vec<Point>, vertices: Vec<Point>, bounding_box: BoundingBox, clip_behavior: ClipBehavior, distance_function: DistanceFunction) -> Self {
         let site_to_incoming_leftmost_halfedge = calculate_incoming_edges(triangulation, sites.len());
         let is_vertex_inside_bounding_box: Vec<bool> = vertices.iter().map(|c| bounding_box.is_inside(c)).collect();
 
         let corner_ownership = if clip_behavior == ClipBehavior::Clip {
-            calculate_corner_ownership(&bounding_box.corners(), &triangulation, sites, &site_to_incoming_leftmost_halfedge)
+            calculate_corner_ownership(&bounding_box.corners(), &triangulation, sites, &site_to_incoming_leftmost_halfedge, distance_function)
         } else {
             Vec::with_capacity(0)
         };
@@ -341,7 +341,7 @@ impl<'t> CellBuilder<'t> {
 }
 
 /// Calculates to which sites each corner belongs to.
-fn calculate_corner_ownership(corners: &[Point], triangulation: &Triangulation, sites: &Vec<Point>, site_to_incoming_leftmost_halfedge: &Vec<usize>) -> Vec<usize> {
+fn calculate_corner_ownership(corners: &[Point], triangulation: &Triangulation, sites: &Vec<Point>, site_to_incoming_leftmost_halfedge: &Vec<usize>, distance_function: DistanceFunction) -> Vec<usize> {
     // corners counter-clockwise
     let mut corner_owners: Vec<usize> = Vec::with_capacity(corners.len());
 
@@ -356,7 +356,9 @@ fn calculate_corner_ownership(corners: &[Point], triangulation: &Triangulation, 
             sites,
             site_to_incoming_leftmost_halfedge,
             site,
-            corner.clone())
+            corner.clone(),
+            &distance_function
+        )
             .last()
             .expect("There must be one site that is the closest.");
 
